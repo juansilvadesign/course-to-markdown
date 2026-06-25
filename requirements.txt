@@ -1,0 +1,9 @@
+# Gemini (Google AI) SDK — same provider as the PsiAtiva n8n gender workflow.
+google-genai>=1.0.0
+# .env loading for the API key.
+python-dotenv>=1.0.0
+
+# System dependency (NOT pip-installable here): ffmpeg must be on PATH.
+#   Debian/Ubuntu: sudo apt install ffmpeg
+# Optional fallback if you cannot install system ffmpeg:
+#   pip install imageio-ffmpeg

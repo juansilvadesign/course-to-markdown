@@ -1,0 +1,14 @@
+# Python virtual env (tests always use .venv)
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+
+# Working media + generated notes (keep the folders, ignore their contents)
+/input/*
+!/input/.gitkeep
+/output/*
+!/output/.gitkeep
