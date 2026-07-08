@@ -34,8 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Media file or folder of media files (default: ./input).")
     p.add_argument("-o", "--output", default=str(config.DEFAULT_OUTPUT_DIR),
                    help="Output directory for .md and .transcript.txt (default: ./output).")
-    p.add_argument("--model", default=config.DEFAULT_MODEL,
-                   help=f"Gemini model (default: {config.DEFAULT_MODEL}).")
+    p.add_argument("--provider", choices=["gemini", "groq"], default=config.DEFAULT_PROVIDER,
+                   help=f"Stage-1 transcription backend (default: {config.DEFAULT_PROVIDER}). "
+                        "'gemini' = audio->text via the gemini-2.5-flash Files API; "
+                        "'groq' = Groq Whisper (cheaper, faster STT). 'groq' needs GROQ_API_KEY.")
+    p.add_argument("--model", default=None,
+                   help="Transcription model. Default depends on --provider: "
+                        f"{config.DEFAULT_MODEL} (gemini) / {config.DEFAULT_GROQ_MODEL} (groq).")
     p.add_argument("--language", default=None,
                    help="Optional language hint, e.g. 'Portuguese' or 'English' (default: auto / preserve).")
     p.add_argument("--thinking-budget", type=int, default=config.DEFAULT_THINKING_BUDGET,
@@ -62,9 +67,20 @@ def main(argv=None) -> int:
         print(f"Input not found: {target}", file=sys.stderr)
         return 2
 
+    # --gemini-format is a Gemini-only legacy path (text->note); Groq is STT-only.
+    if args.gemini_format and args.provider != "gemini":
+        print("Error: --gemini-format is a Gemini-only legacy path; run it with "
+              "--provider gemini.", file=sys.stderr)
+        return 2
+
+    # Per-provider default model (kept out of argparse so the default tracks --provider).
+    model = args.model or (
+        config.DEFAULT_GROQ_MODEL if args.provider == "groq" else config.DEFAULT_MODEL)
+
     opts = Options(
         output_dir=Path(args.output).expanduser(),
-        model=args.model,
+        provider=args.provider,
+        model=model,
         thinking_budget=args.thinking_budget,
         language=args.language,
         keep_audio=args.keep_audio,

@@ -26,7 +26,8 @@ Stage 1 only transcribes (the verbatim `.txt` is the hand-off). Stage 2 is where
 ## Requirements
 
 - Python 3.10+, and **ffmpeg** on `PATH` (`sudo apt install ffmpeg`; or `pip install imageio-ffmpeg`).
-- A **Google AI (Gemini) API key** — used only in Stage 1.
+- A **Google AI (Gemini) API key** — used only in Stage 1 (the default provider).
+- *(Optional)* a **Groq API key** if you want `--provider groq` (Whisper STT — cheaper/faster). Free key at <https://console.groq.com/keys>.
 - Stage 2 needs only a Claude Code session (no key).
 
 ## Setup (always use `.venv` — test and production)
@@ -36,7 +37,7 @@ cd knowledge/projects/course-to-markdown
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env          # put your key in GEMINI_API_KEY
+cp .env.example .env          # put your key in GEMINI_API_KEY (and GROQ_API_KEY if you'll use --provider groq)
 ```
 
 ## Stage 1 — transcribe (Python)
@@ -46,11 +47,14 @@ cp .env.example .env          # put your key in GEMINI_API_KEY
 python main.py                                  # input/ -> output/, structure mirrored
 python main.py input/ --language Portuguese     # language hint (default: auto/preserve)
 python main.py input/ --dry-run                 # extract audio + report; no API calls
+python main.py input/ --provider groq           # transcribe via Groq Whisper instead of Gemini (needs GROQ_API_KEY)
 python main.py lesson.mp4 --retranscribe        # force re-transcription
 python main.py input/ --gemini-format           # legacy: also let Gemini write a .md (skips Stage 2)
 ```
 
 For each lesson you get `output/<…>/<lesson>.transcript.txt`. Re-runs **skip** lessons already transcribed (use `--overwrite`). The batch keeps going if one file fails.
+
+**Providers.** Stage 1 defaults to Gemini (`gemini-2.5-flash`). Pass `--provider groq` to transcribe with Groq's Whisper (`whisper-large-v3-turbo`) instead — a purpose-built STT that's cheaper and faster, with none of the LLM output-ceiling / repetition-loop failure modes. Tradeoff: Whisper turbo can mis-render English technical terms spoken inside Portuguese (on the TypeScript course the type `any` came out as "N"), so for code-dense courses Gemini reads keywords more faithfully — though the Stage-2 Claude compilation usually repairs it from context. Groq's free tier is rate-limited — for `whisper-large-v3-turbo` the binding cap is audio duration: roughly **8 hours of audio per day** (plus ~2 h/hour, 20 req/min, 2,000 req/day), so a long course spans several days unless you upgrade. See [`groq-rate-limits.md`](../../sources/groq-rate-limits.md) for the full table. *(Zen/opencode was evaluated but can't transcribe — it's a text-only gateway; only Gemini takes audio and Zen's Gemini integration is broken.)*
 
 ## Stage 2 — compile per module (Claude agent)
 

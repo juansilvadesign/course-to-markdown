@@ -12,3 +12,6 @@ __pycache__/
 !/input/.gitkeep
 /output/*
 !/output/.gitkeep
+
+# Logs
+*.log

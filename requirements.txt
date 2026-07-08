@@ -7,3 +7,8 @@ python-dotenv>=1.0.0
 #   Debian/Ubuntu: sudo apt install ffmpeg
 # Optional fallback if you cannot install system ffmpeg:
 #   pip install imageio-ffmpeg
+
+# Stage 0 — downloaders/ (course-downloader skill). HTTP client + media fetcher.
+#   httpx: API/JSON + direct-file streaming. yt-dlp: HLS/DASH/embed video (needs ffmpeg).
+httpx>=0.27
+yt-dlp>=2025.1.1

@@ -14,7 +14,22 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import audio, config, formatter, gemini_client, transcribe
+from . import audio, config, formatter, gemini_client, groq_client, transcribe
+
+
+def _transcribe_one(client, path: Path, opts: Options) -> str:
+    """Transcribe a single (already-normalized, already-chunked) audio file with the
+    selected provider."""
+    if opts.provider == "groq":
+        return groq_client.transcribe_file(
+            path, opts.model, opts.language, config.get_groq_api_key())
+    # Default: Gemini via the Files API (upload -> generate -> delete).
+    uploaded = gemini_client.upload_and_wait(client, path)
+    try:
+        return transcribe.transcribe(
+            client, uploaded, opts.model, opts.thinking_budget, opts.language)
+    finally:
+        gemini_client.delete_file(client, uploaded)
 
 
 def _transcribe_audio(client, audio_path: Path, work_dir: Path, opts: Options) -> str:
@@ -22,25 +37,18 @@ def _transcribe_audio(client, audio_path: Path, work_dir: Path, opts: Options) -
 
     A single long upload (30-45 min) both risks the output-token ceiling and pushes the
     model into repetition loops. Files over the threshold are split into ~10-min chunks,
-    each transcribed and uploaded/deleted independently, then concatenated.
+    each transcribed independently, then concatenated. Chunking benefits both providers
+    (Gemini's failure modes; Groq's per-file size limit).
     """
-    def _one(path: Path) -> str:
-        uploaded = gemini_client.upload_and_wait(client, path)
-        try:
-            return transcribe.transcribe(
-                client, uploaded, opts.model, opts.thinking_budget, opts.language)
-        finally:
-            gemini_client.delete_file(client, uploaded)
-
     duration = audio.probe_duration(audio_path)
     if duration is None or duration <= config.AUDIO_CHUNK_THRESHOLD_SEC:
-        return _one(audio_path)
+        return _transcribe_one(client, audio_path, opts)
 
     chunks = audio.split_audio(audio_path, config.AUDIO_CHUNK_LENGTH_SEC, work_dir / "chunks")
     if not chunks:
-        return _one(audio_path)
+        return _transcribe_one(client, audio_path, opts)
     print(f"      (long: {duration/60:.0f} min -> {len(chunks)} chunks)")
-    parts = [p.strip() for p in (_one(c) for c in chunks) if p and p.strip()]
+    parts = [p.strip() for p in (_transcribe_one(client, c, opts) for c in chunks) if p and p.strip()]
     return "\n".join(parts)
 
 
@@ -62,6 +70,7 @@ def _ascii_name(stem: str) -> str:
 @dataclass
 class Options:
     output_dir: Path
+    provider: str = config.DEFAULT_PROVIDER  # "gemini" (default) | "groq"
     model: str = config.DEFAULT_MODEL
     thinking_budget: int | None = config.DEFAULT_THINKING_BUDGET
     language: str | None = None
@@ -144,7 +153,7 @@ def process_file(client, src: Path, rel: Path, opts: Options) -> Result:
         md_path.write_text(md + "\n", encoding="utf-8")
         return Result(src, "done", transcript_path=txt_path, markdown_path=md_path)
 
-    except gemini_client.DailyQuotaExhausted:
+    except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted):
         raise  # propagate: the whole batch must stop (every remaining call would 429)
     except Exception as e:  # noqa: BLE001 - keep the batch alive
         return Result(src, "error", error=str(e))
@@ -176,8 +185,17 @@ def run(target: Path, opts: Options) -> list[Result]:
         print(f"No media files found at: {target}", file=sys.stderr)
         return []
 
-    # A client is needed for any real API call; dry-run never touches the API.
-    client = None if opts.dry_run else gemini_client.get_client()
+    # Provider setup (dry-run never touches any API). Groq is stateless per request, so
+    # it needs no client object — just a validated key up front.
+    client = None
+    if not opts.dry_run:
+        if opts.provider == "groq":
+            if not config.get_groq_api_key():
+                raise RuntimeError(
+                    "Provider 'groq' selected but GROQ_API_KEY is not set. "
+                    "Add it to .env (see .env.example) or the environment.")
+        else:
+            client = gemini_client.get_client()
 
     results: list[Result] = []
     for i, src in enumerate(inputs, 1):
@@ -185,10 +203,11 @@ def run(target: Path, opts: Options) -> list[Result]:
         print(f"[{i}/{len(inputs)}] {rel}")
         try:
             res = process_file(client, src, rel, opts)
-        except gemini_client.DailyQuotaExhausted:
+        except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted):
             done = sum(1 for r in results if r.status == "done")
-            print(f"  [stop] daily API quota reached — stopping after {done} new this run. "
-                  f"Re-run later to resume (finished files are skipped).", file=sys.stderr)
+            print(f"  [stop] {opts.provider}: rate/quota limit won't clear this run — stopping "
+                  f"after {done} new. Re-run later to resume (finished files are skipped).",
+                  file=sys.stderr)
             break
         _print_result(res)
         results.append(res)

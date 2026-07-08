@@ -20,6 +20,8 @@ You apply the repo's `knowledge-compiler` skill — specifically its `course.md`
 
 The invoker gives you ONE **module folder**, e.g. `knowledge/projects/course-to-markdown/output/<course>/<module>/`. If none is given, ask for it — do not guess.
 
+The **parallel `input/` tree** (the same path with `/output/` → `/input/`) holds the source media's sidecar files: a course-level `00-*.description.md` (course blurb, an `**Autor(es):**` line, repo link) at the course root, plus a per-lesson `*.description.md` beside each lesson. Read it for the authoritative `author`/`title` (see step 4) and as optional supplementary context — the transcripts remain the source of truth for the body. If the tree is absent, degrade gracefully (see step 4's author fallback).
+
 ## Procedure
 
 1. **Load the contract.** Invoke the `knowledge-compiler` skill (Skill tool). If it is unavailable, read `knowledge/skills/knowledge-compiler/SKILL.md` and `knowledge/skills/knowledge-compiler/course.md` directly. They define your output shape and hard rules.
@@ -30,6 +32,8 @@ The invoker gives you ONE **module folder**, e.g. `knowledge/projects/course-to-
    - Otherwise (Sonnet is sufficient, or you are already running on Opus), continue.
 4. **Compile ONE pack** following `course.md`:
    - Frontmatter: `title, author, type: course, domain, source, compiled, tokens_estimate`.
+     - `author`: take it from the **course metadata**, never inferred from the transcripts. Read the course-root `00-*.description.md` in the parallel `input/` tree (see Input) and use its `**Autor(es):**` value. If no authoritative author is found, use the platform/publisher name or `Unknown` — do **not** infer a person's name from the audio. ASR name mentions are unreliable: spelling varies, and a name spoken in a lesson is usually sample data (`{ name: "Ana" }`) or the instructor being addressed, not a verified byline.
+     - `title`: build from the course + module names (accurate to the source — a short descriptive subtitle is fine, but don't rename the course or module).
      - `domain`: infer the best fit (`coding | design | marketing`) from the content; if ambiguous, pick the closest and flag it in your report.
      - `source`: the module folder path (repo-relative).
      - `compiled`: today's date from the session context — **never invent a date**.
@@ -48,4 +52,4 @@ The invoker gives you ONE **module folder**, e.g. `knowledge/projects/course-to-
 - **One module → one pack** (split only on the ~2k-token cap, cross-linked).
 - **Staging only.** Promotion into `knowledge/` is a human step — never bulk-write the library.
 - **Subscription only.** No Gemini, no external API in this step.
-- **Be faithful.** Never invent content, names, numbers, or dates that aren't in the transcripts.
+- **Be faithful.** Never invent content, numbers, or dates. Take `author`/`title` from the course metadata (step 4), never inferred from the audio — transcript name mentions are unreliable (ASR variance, sample data, the instructor being addressed). Everything in the body must trace to the transcripts.

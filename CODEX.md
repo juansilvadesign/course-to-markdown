@@ -8,7 +8,7 @@ Order: `CODEX.md`/`CLAUDE.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas)
 
 ## Product in one paragraph
 
-A two-stage pipeline that turns owned course videos into knowledge-compiler packs. **Stage 1** (`main.py`, Python + Gemini API) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `gemini-2.5-flash`, and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles one staged `<module>.pack.md` per module via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
+A two-stage pipeline that turns owned course videos into knowledge-compiler packs. **Stage 1** (`main.py`, Python + Gemini API) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `gemini-2.5-flash` (or Groq Whisper via `--provider groq`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles one staged `<module>.pack.md` per module via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
 
 ## Hard rules (never violate)
 
@@ -17,7 +17,19 @@ A two-stage pipeline that turns owned course videos into knowledge-compiler pack
 - **Run `main.py input/` for a full course.** Output mirroring is relative to the *target*; pointing at a sub-folder flattens output into `output/`.
 - **Transcripts and packs are staged.** Promotion into `knowledge/` is a human step — never auto-write the library.
 - **Gemini = `gemini-2.5-flash`, thinking off.** One Google AI key in `.env`. A full course needs a **paid tier** (free tier caps at 20 requests/day).
+- **Provider is pluggable; Gemini is the default.** `--provider groq` swaps Stage-1 transcription to Groq Whisper (`whisper-large-v3-turbo`, needs `GROQ_API_KEY`) — cheaper/faster STT with no 64k-ceiling or repetition-loop failure modes; it does **not** change Stage 2. **Choose per course by how much English jargon the audio carries — see _Choosing a provider_ below.** Zen/opencode **can't** transcribe (text-only gateway, its Gemini is broken) — see `MEMORY.md` 2026-07-02.
 - **Never invent dates** in frontmatter — the code injects today's date; the Stage-2 agent carries the same rule.
+
+## Choosing a provider (Gemini vs Groq)
+
+Decide **per course, at invocation** — this affects **Stage 1 only** (Stage 2 Claude compilation is unchanged). The deciding variable is **how much English technical vocabulary the audio contains**: Whisper turbo garbles English terms spoken inside Portuguese (it rendered the TS type `any` as "N", "um N.ts"), while Gemini reads them faithfully.
+
+- **Lots of English jargon → Gemini (default).** Programming / DevOps / data courses, and any course thick with English tool, product, or API names (TypeScript, React, Node, Docker, After Effects, Rive, Figma…). Fidelity wins exactly where the words carry the meaning.
+- **Mostly Portuguese prose → Groq (`--provider groq`).** Business, marketing, communication, soft-skills, or theory courses where English terms are rare — Whisper's weakness never bites, and you get cheaper + faster transcription with no output-ceiling or repetition-loop risk.
+- **Gemini quota exhausted with no paid tier?** For a low-jargon course, switch to Groq to keep moving. For a jargon-heavy one, prefer waiting / upgrading Gemini over accepting the `any`→"N" class of errors.
+- **Unsure → Gemini** (safer on fidelity), or transcribe one representative lesson with each and eyeball how the English terms render before committing the whole batch.
+
+Tell from the `input/<course>/` folder name + any `*.description.md` / `manifest.json`. Both free tiers are rate-limited — a full course usually needs a paid tier. **Gemini free** caps at ~20 requests/day; **Groq Whisper-turbo free**'s binding cap is audio-seconds — **~8 h of audio/day** (28,800 ASD) + ~2 h/hour (7,200 ASH), 20 RPM, 2,000 RPD — so a long course spans several days (Motion Boost's 17 h ≈ 3 days). Full table + 429/`retry-after` headers: `knowledge/sources/groq-rate-limits.md`.
 
 ## Hard-won lessons — keep these, do not regress (full detail in `CONTEXT.md` §4)
 
@@ -31,7 +43,8 @@ A two-stage pipeline that turns owned course videos into knowledge-compiler pack
 
 ```bash
 cd knowledge/projects/course-to-markdown
-PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course
+PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course (Gemini, default)
+.venv/bin/python main.py input/ --provider groq --language Portuguese   # Stage 1 via Groq Whisper (needs GROQ_API_KEY)
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
 .venv/bin/python -c "import course_to_markdown.pipeline"               # import smoke check
 ```

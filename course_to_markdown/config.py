@@ -12,9 +12,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Load .env from the project root if present (does not override real env vars).
 load_dotenv(PROJECT_ROOT / ".env")
 
+# --- Transcription provider (Stage 1) ---
+# "gemini" (default) uploads audio to gemini-2.5-flash via the Files API. "groq" POSTs
+# audio to Groq Whisper — a cheaper, purpose-built STT model with none of the LLM
+# failure modes (output-token ceiling, repetition loops). Stage 2 is unaffected.
+# (Zen/opencode was evaluated and rejected: text-only gateway, its Gemini is broken —
+# it cannot ingest audio. See MEMORY.md 2026-07-02.)
+DEFAULT_PROVIDER = os.getenv("COURSE_TO_MD_PROVIDER", "gemini")
+
 # --- Gemini ---
 DEFAULT_MODEL = os.getenv("COURSE_TO_MD_MODEL", "gemini-2.5-flash")
 DEFAULT_THINKING_BUDGET = int(os.getenv("COURSE_TO_MD_THINKING_BUDGET", "0"))
+
+# --- Groq (Whisper STT) ---
+DEFAULT_GROQ_MODEL = os.getenv("COURSE_TO_MD_GROQ_MODEL", "whisper-large-v3-turbo")
 
 # Per-request timeout (ms). Bounds a frozen connection (e.g. the machine sleeping
 # mid-run) so the call errors and the batch can continue/resume, instead of hanging
@@ -25,6 +36,11 @@ REQUEST_TIMEOUT_MS = int(os.getenv("COURSE_TO_MD_REQUEST_TIMEOUT_MS", "600000"))
 def get_api_key() -> str | None:
     """Google AI (Gemini) key. Accepts GEMINI_API_KEY or GOOGLE_API_KEY."""
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+def get_groq_api_key() -> str | None:
+    """Groq key, used when --provider groq. Create one at https://console.groq.com/keys."""
+    return os.getenv("GROQ_API_KEY")
 
 
 # --- Paths ---
