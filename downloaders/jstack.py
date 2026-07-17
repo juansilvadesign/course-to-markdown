@@ -7,23 +7,48 @@ Generated from knowledge/skills/course-downloader/script-template.py by the
 DRM guard, tree writer, links.md builder) is the template verbatim; only the three
 PLATFORM-SPECIFIC functions + a few JStack helpers are filled in.
 
-Platform facts (recon 2026-06-23, see knowledge/skills/course-downloader/platform-recon.md):
+Platform facts (recon 2026-06-23, extended 2026-07-17; see
+knowledge/skills/course-downloader/platform-recon.md):
   * REST API at https://api.jstack.com.br ; SPA frontend at https://app.jstack.com.br.
   * Auth = the user's own logged-in session: an `accessToken` cookie (Bearer) from the
     exported cookies.txt, plus a constant public X-App-Key, plus Origin/Referer.
-  * Curriculum: GET /contents/trainings/<slug> -> content.nodes (nested MODULE tree;
-    a leaf module has an empty `nodes`). GET .../modules/<parentSlugs/slug> -> the leaf
-    branch whose nested `nodes` bottom out in type=VIDEO lessons.
+  * THREE content types, not one (the SPA's own map: LIVE->lives, PROJECT->projects,
+    TRAINING->trainings). The /search page is POST /contents/search (a GET 404s) and just
+    groups these. Catalog listings: GET /contents/{lives,projects,trainings}; `lives` is
+    CURSOR-PAGINATED via `nextPage` (16/page) — a single un-paged GET silently sees ~16 of 69.
+  * Curriculum shape differs PER TYPE — detect, don't assume:
+      - trainings/projects: GET /contents/<seg>/<slug> -> content.nodes is a SECTION/MODULE
+        skeleton with NO video data; each leaf module must be fetched via
+        GET /contents/<seg>/<slug>/modules/<parentSlugs/slug> to reach type=VIDEO nodes.
+      - lives: the detail response already carries the WHOLE tree inline (MODULE -> VIDEO
+        with data.external populated). The .../modules/ endpoint 404s for lives — they don't
+        need it. One request enumerates a whole live.
+    enumerate_course() therefore uses inline VIDEO nodes when present and only falls back to
+    the per-module fetch when the detail response has none.
   * Video: each VIDEO node carries data.external={id, provider:BUNNY, libraryId, status}.
     The stream is Bunny HLS https://vz-<hash>.b-cdn.net/<id>/playlist.m3u8 where the vz-<hash>
     host is PER LIBRARY (627567 -> vz-ecd6b81a-333 [typescript]; 349046 -> vz-968de784-70c
-    [full-stack]); resolve it per video via _pull_zone_for_library() — NEVER hardcode one
-    library's host (that 404s every video of any other course). Referer-gated, NO DRM, no token.
+    [full-stack]; 300830 -> vz-e9bd0866-1a0 [lives]); resolve it per video via
+    _pull_zone_for_library() — NEVER hardcode one library's host (that 404s every video of
+    any other course). Referer-gated, NO DRM, no token.
+  * NOT every live is a Bunny course. A YouTube-hosted live has `nodes: []` and the URL in
+    metadata.youtubeURL (also mirrored under metadata.protected). Known case: live #66
+    `dominando-os-react-hooks`. Without _youtube_lesson() such a course enumerates to ZERO
+    lessons and writes a clean-looking manifest — the same silent-success trap as the
+    wrong-pull-zone bug. An empty tree with no youtubeURL is reported, never written as done.
 
 Run from the course-to-markdown project root, using its .venv:
 
-    .venv/bin/python downloaders/jstack.py "https://app.jstack.com.br/contents/trainings/formacao-typescript" \
-        --cookies ../../skills/course-downloader/cookies.txt --course-slug formacao-typescript --dry-run
+    # List everything this session can see (69 lives + 3 projects + 2 trainings):
+    .venv/bin/python downloaders/jstack.py --list --cookies input/cookies.txt
+
+    # One course — any type; the URL's segment picks it, a bare slug is looked up:
+    .venv/bin/python downloaders/jstack.py "https://app.jstack.com.br/lives/react-router-v7" \
+        --cookies input/cookies.txt --dry-run
+
+    # Every live, sequentially (one course at a time), resumable:
+    .venv/bin/python downloaders/jstack.py --all lives --cookies input/cookies.txt --resume
+
     # Downloads audio-only .m4a by default (Stage 1 only transcribes); add --video for .mp4.
     # Then drop --dry-run to download; --resume to continue an interrupted run.
 
@@ -77,9 +102,24 @@ APP_KEY = "iuS99sAdm9seEfMX4gxMm1OjDl4MzEy4M2ODjNudTg5M44OXOXgzbjnU"
 BUNNY_PULL_ZONES: dict[str, str] = {
     "627567": "vz-ecd6b81a-333",   # formacao-typescript
     "349046": "vz-968de784-70c",   # formacao-full-stack
+    "300830": "vz-e9bd0866-1a0",   # lives (all 68 Bunny-hosted lives share one library)
 }
 BUNNY_EMBED_BASE = "https://iframe.mediadelivery.net/embed"
 _PULL_ZONE_RE = re.compile(r"vz-[0-9a-z]+-[0-9a-z]+\.b-cdn\.net")
+
+# The SPA's own content-type map (bundle: `new Map([["LIVE","lives"],["PROJECT","projects"],
+# ["TRAINING","trainings"]])`). The API segment is the ONLY thing that varies between types —
+# every /contents/<segment>/... path below is otherwise identical.
+CONTENT_SEGMENTS: tuple[str, ...] = ("lives", "projects", "trainings")
+
+# Where each type lands under input/. Trainings keep the flat legacy layout (the two
+# formacao-* folders already live there); the bulk types get a parent folder so Stage 1 can
+# transcribe them as their own batch instead of `main.py input/` sweeping all 69 at once.
+INPUT_SUBDIR: dict[str, str] = {
+    "lives": "jstack-lives",
+    "projects": "jstack-projects",
+    "trainings": "",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -140,26 +180,50 @@ def authenticate(args) -> "httpx.Client":
                         timeout=HTTP_TIMEOUT, follow_redirects=True)
 
 
-def enumerate_course(client, course_url: str) -> "tuple[str, list[Lesson]]":
-    """Return (course_title, lessons) in order.
+def enumerate_course(client, segment: str, slug: str) -> "tuple[str, list[Lesson]]":
+    """Return (course_title, lessons) in order, for any content type.
 
     JStack returns each lesson's full payload (video id + description + materials/links)
-    inside the module listing, so all assets are built here in one pass and
+    alongside the video node, so all assets are built here in one pass and
     resolve_lesson_assets() below is a no-op. See platform-recon.md §3-6.
+
+    The tree arrives one of three ways, so DETECT rather than assume (see module docstring):
+      1. inline  — lives: the detail response already holds MODULE -> VIDEO with data.external.
+      2. youtube — a live with no nodes at all, video URL in metadata.youtubeURL.
+      3. fetched — trainings/projects: detail is a SECTION/MODULE skeleton; each leaf module
+                   must be fetched to reach its VIDEO nodes.
     """
-    slug = _course_slug_from_url(course_url, client)
-    detail = _api_get(client, f"/contents/trainings/{slug}")
+    detail = _api_get(client, f"/contents/{segment}/{slug}")
     content = detail["content"]
     course_title = content.get("name") or slug
+    nodes = content.get("nodes") or []
 
     lessons: list[Lesson] = []
     meta = _course_meta_lesson(content)
     if meta:
         lessons.append(meta)
 
-    for leaf_path in _leaf_module_paths(content.get("nodes") or []):
+    # 1. Inline tree (lives) — every VIDEO is already here; no extra request needed.
+    inline = [(v, chain) for v, chain in _walk_videos(nodes, [])
+              if ((v.get("data") or {}).get("external") or {}).get("id")]
+    if inline:
+        lessons += [_lesson_from_video(v, chain) for v, chain in inline]
+        return course_title, lessons
+
+    # 2. No tree at all -> a YouTube-hosted live, or genuinely empty (reported, never silent).
+    if not nodes:
+        yt = _youtube_lesson(content)
+        if yt:
+            lessons.append(yt)
+        else:
+            log(f"  ! {segment}/{slug}: no nodes and no metadata.youtubeURL — nothing to "
+                f"download (unknown content shape; not marking done)")
+        return course_title, lessons
+
+    # 3. Skeleton only (trainings/projects) -> fetch each leaf module.
+    for leaf_path in _leaf_module_paths(nodes):
         try:
-            resp = _api_get(client, f"/contents/trainings/{slug}/modules/{leaf_path}")
+            resp = _api_get(client, f"/contents/{segment}/{slug}/modules/{leaf_path}")
         except Exception as e:  # noqa: BLE001 — one bad module shouldn't kill the course
             log(f"  ! module fetch failed: {leaf_path}: {redact(e)}")
             continue
@@ -191,25 +255,62 @@ def _parse_netscape_cookies(path: str) -> dict:
     return cookies
 
 
-def _course_slug_from_url(course_url: str, client) -> str:
-    """Accept a full .../trainings/<slug>[/...] URL, or a bare slug. On miss, list the
-    courses this session can see so the user can re-run with one."""
+def list_catalog(client, segments: "tuple[str, ...]" = CONTENT_SEGMENTS) -> "dict[str, list[dict]]":
+    """Every content this session can see, per type: {segment: [entry, ...]}.
+
+    `lives` is cursor-paginated (`nextPage`, a base64 DynamoDB key) — follow it to the end or
+    you silently get only the first 16 of 69. The other two return everything in one page.
+    """
+    catalog: dict[str, list[dict]] = {}
+    for seg in segments:
+        items: list[dict] = []
+        page, guard = None, 0
+        while guard < 50:                     # cursor loop, bounded so a bad cursor can't spin
+            guard += 1
+            resp = client.get(f"/contents/{seg}", params={"page": page} if page else None)
+            resp.raise_for_status()
+            polite_sleep(DEFAULT_RATE_SECONDS)
+            data = resp.json()
+            items += data.get("contents") or []
+            page = data.get("nextPage")
+            if not page:
+                break
+        catalog[seg] = items
+    return catalog
+
+
+def _content_ref_from_url(course_url: str, client) -> "tuple[str, str]":
+    """Resolve a user-supplied course reference to (segment, slug).
+
+    Accepts a full URL of any type (.../lives/<slug>, .../contents/projects/<slug>, ...) or a
+    bare slug, which is looked up across the catalog so `--list` output can be pasted straight
+    back in. Guessing the segment is not an option: the wrong one 404s the whole course.
+    """
     u = (course_url or "").strip()
-    if u and "/" not in u and "://" not in u:
-        return u
-    m = re.search(r"/trainings/([^/?#]+)", u)
+    m = re.search(rf"/({'|'.join(CONTENT_SEGMENTS)})/([^/?#]+)", u)
     if m:
-        return m.group(1)
-    seg = [s for s in urlparse(u).path.split("/") if s]
-    if seg:
-        return seg[-1]
+        return m.group(1), m.group(2)
+
+    slug = u if (u and "/" not in u and "://" not in u) else next(
+        (s for s in reversed([p for p in urlparse(u).path.split("/") if p])), "")
+    if slug:
+        catalog = list_catalog(client)
+        hits = [(seg, i) for seg, items in catalog.items()
+                for i in items if i.get("slug") == slug]
+        if len(hits) == 1:
+            return hits[0][0], slug
+        if len(hits) > 1:
+            sys.exit(f"Ambiguous slug {slug!r} — exists as: "
+                     + ", ".join(f"{seg}/{slug}" for seg, _ in hits)
+                     + ". Pass a full URL to disambiguate.")
     try:
-        avail = [c.get("slug") for c in (_api_get(client, "/contents/trainings").get("contents") or [])]
-        hint = "  available: " + ", ".join(s for s in avail if s)
+        avail = list_catalog(client)
+        hint = "\n".join(f"  {seg}: " + ", ".join(i.get("slug", "") for i in items)
+                         for seg, items in avail.items())
     except Exception:  # noqa: BLE001
         hint = ""
-    sys.exit(f"Could not read a course slug from {redact(course_url)!r}; pass a "
-             f".../trainings/<slug> URL or a bare slug.\n{hint}")
+    sys.exit(f"Could not resolve {redact(course_url)!r} to a course; pass a "
+             f".../<{'|'.join(CONTENT_SEGMENTS)}>/<slug> URL or a bare slug.\n{hint}")
 
 
 def _api_get(client, path: str, rate: float = DEFAULT_RATE_SECONDS) -> dict:
@@ -339,6 +440,30 @@ def _extract_materials(node: dict) -> list[Asset]:
         name = m.get("name") or m.get("title") or Path(urlparse(url).path).name or "material"
         out.append(Asset(url=url, headers={"Referer": ORIGIN + "/"}, suggested_name=name))
     return out
+
+
+def _youtube_lesson(content: dict) -> "Lesson | None":
+    """A live whose recording lives on YouTube instead of Bunny (nodes: []).
+
+    The URL sits at metadata.youtubeURL, mirrored under metadata.protected.youtubeURL. yt-dlp
+    handles youtube.com/live/<id> natively, so this is just a different Asset — no Referer
+    gate, no pull zone. Known case: live #66 `dominando-os-react-hooks`.
+    """
+    meta = content.get("metadata") or {}
+    url = meta.get("youtubeURL") or (meta.get("protected") or {}).get("youtubeURL")
+    if not url:
+        return None
+    return Lesson(
+        path=[],
+        # order=1, not 0: the course meta lesson is already 00-<slug>, and an identical stem
+        # would collide on lesson_id() -> one shared manifest key for two lessons, letting
+        # --resume mark the blurb "done" and skip the actual video.
+        order=1,
+        title=content.get("name") or content.get("slug") or "aula",
+        video=Asset(url=url, use_ytdlp=True),
+        description=(content.get("description") or "").strip(),
+        links=[url],
+    )
 
 
 def _course_meta_lesson(content: dict) -> "Lesson | None":
@@ -486,18 +611,20 @@ def build_links_md(course_title: str, lessons: "list[Lesson]", course_dir: Path)
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
-def run(args) -> int:
-    if httpx is None:
-        sys.exit("Install deps into the course-to-markdown .venv: pip install httpx yt-dlp")
-    if args.max_height:  # asking for a resolution implies you want the video, not audio-only
-        args.audio_only = False
+def _course_dir_for(args, segment: str, course_slug: str) -> Path:
+    """input/<subdir>/<slug> — trainings stay flat (legacy), bulk types get a parent folder."""
+    if args.out:
+        return Path(args.out)
+    root = Path(__file__).resolve().parent.parent / "input"
+    sub = INPUT_SUBDIR.get(segment, "")
+    return (root / sub / course_slug) if sub else (root / course_slug)
 
-    client = authenticate(args)
-    course_title, lessons = enumerate_course(client, args.course_url)
-    course_slug = args.course_slug or slugify(course_title)
-    course_dir = Path(args.out) if args.out else (
-        Path(__file__).resolve().parent.parent / "input" / course_slug
-    )
+
+def run_one(args, client, segment: str, slug: str) -> int:
+    """Download a single course. Returns the number of FAILED lessons (0 = clean)."""
+    course_title, lessons = enumerate_course(client, segment, slug)
+    course_slug = args.course_slug or slug or slugify(course_title)
+    course_dir = _course_dir_for(args, segment, course_slug)
     course_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(course_dir)
     log(f"[{PLATFORM}] {course_title} - {len(lessons)} lessons -> {course_dir}")
@@ -561,13 +688,90 @@ def run(args) -> int:
     drm = sum(1 for s in states if s["status"] == "skipped-drm")
     failed = sum(1 for s in states if s["status"] == "failed")
     log(f"[done] {done} downloaded | {drm} DRM-skipped | {failed} failed -> {course_dir}")
-    return 1 if failed else 0
+    return failed
+
+
+def print_catalog(catalog: "dict[str, list[dict]]") -> None:
+    for seg, items in catalog.items():
+        log(f"\n=== {seg} ({len(items)}) ===")
+        for i in items:
+            num = (i.get("metadata") or {}).get("number")
+            cat = (i.get("category") or {}).get("name", "")
+            lock = "" if (i.get("isAllowed") and i.get("isUnlocked")) else "  [LOCKED]"
+            tag = f"#{num:<3}" if num is not None else "    "
+            log(f"  {tag} {i.get('slug','')!s:<70s} {cat}{lock}")
+    log(f"\ntotal: {sum(len(v) for v in catalog.values())}")
+
+
+def run(args) -> int:
+    if httpx is None:
+        sys.exit("Install deps into the course-to-markdown .venv: pip install httpx yt-dlp")
+    if args.max_height:  # asking for a resolution implies you want the video, not audio-only
+        args.audio_only = False
+
+    client = authenticate(args)
+
+    if args.list_only:
+        print_catalog(list_catalog(client))
+        return 0
+
+    # ---- single course ---------------------------------------------------- #
+    if not args.all:
+        segment, slug = _content_ref_from_url(args.course_url, client)
+        return 1 if run_one(args, client, segment, slug) else 0
+
+    # ---- batch: one course at a time, sequentially ------------------------ #
+    segments = CONTENT_SEGMENTS if args.all == "all" else (args.all,)
+    catalog = list_catalog(client, segments)
+    queue = [(seg, i) for seg in segments for i in catalog[seg]
+             if i.get("isAllowed") and i.get("isUnlocked")]
+    skipped = sum(len(catalog[s]) for s in segments) - len(queue)
+    if args.limit:
+        queue = queue[:args.limit]
+    log(f"[{PLATFORM}] batch: {len(queue)} course(s)"
+        + (f" ({skipped} locked, skipped)" if skipped else ""))
+
+    # --course-slug names ONE folder; it cannot name N. Guard rather than overwrite in a loop.
+    if args.course_slug or args.out:
+        sys.exit("--course-slug/--out name a single folder and cannot be combined with --all; "
+                 "the batch derives input/<subdir>/<slug> per course.")
+
+    results: list[tuple[str, str, str]] = []
+    for n, (seg, item) in enumerate(queue, 1):
+        slug = item.get("slug") or ""
+        log(f"\n───── [{n}/{len(queue)}] {seg}/{slug} ─────")
+        try:
+            failed = run_one(args, client, seg, slug)
+            results.append((seg, slug, "clean" if not failed else f"{failed} failed"))
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:  # noqa: BLE001 — one bad course must not kill the batch
+            log(f"  ! course failed: {seg}/{slug}: {redact(e)}")
+            results.append((seg, slug, "ERROR"))
+
+    log(f"\n═════ batch summary ═════")
+    bad = [r for r in results if r[2] != "clean"]
+    for seg, slug, status in bad:
+        log(f"  ! {seg}/{slug}: {status}")
+    log(f"{len(results) - len(bad)}/{len(results)} clean"
+        + (f" | {len(bad)} need attention (re-run with --resume)" if bad else ""))
+    return 1 if bad else 0
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=f"Download a course from {PLATFORM} (Stage 0).")
-    p.add_argument("course_url", help="Course home URL (.../trainings/<slug>) or a bare slug.")
-    p.add_argument("--out", help="Output dir (default: ../input/<course-slug>).")
+    p.add_argument("course_url", nargs="?",
+                   help="Course home URL (.../<lives|projects|trainings>/<slug>) or a bare "
+                        "slug. Omit when using --list or --all.")
+    p.add_argument("--list", dest="list_only", action="store_true",
+                   help="List every course this session can see (all types) and exit.")
+    p.add_argument("--all", choices=(*CONTENT_SEGMENTS, "all"), default=None,
+                   help="Batch-download a whole content type (or 'all'), one course at a "
+                        "time. Locked courses are skipped; a failing course is reported and "
+                        "the batch continues. Pair with --resume to continue a run.")
+    p.add_argument("--limit", type=int, default=None,
+                   help="With --all: stop after N courses (smoke-test a batch).")
+    p.add_argument("--out", help="Output dir (default: ../input/<subdir>/<course-slug>).")
     p.add_argument("--course-slug", dest="course_slug", help="Folder name under input/.")
     p.add_argument("--cookies", help="Path to exported cookies.txt (Netscape format).")
     p.add_argument("--video", dest="audio_only", action="store_false",
@@ -583,7 +787,12 @@ def parse_args(argv=None):
     p.add_argument("--rate", type=float, default=DEFAULT_RATE_SECONDS, help="Seconds between network ops.")
     p.add_argument("--dry-run", action="store_true", help="Enumerate + resolve only; download nothing.")
     p.add_argument("--resume", action="store_true", help="Skip lessons already done in manifest.json.")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if not (args.course_url or args.list_only or args.all):
+        p.error("pass a course URL/slug, or --list, or --all <type>.")
+    if args.course_url and args.all:
+        p.error("--all downloads a whole type; drop the course URL (or drop --all).")
+    return args
 
 
 if __name__ == "__main__":
