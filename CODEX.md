@@ -8,13 +8,15 @@ Order: `CODEX.md`/`CLAUDE.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas)
 
 ## Product in one paragraph
 
-A two-stage pipeline that turns owned course videos into knowledge-compiler packs. **Stage 1** (`main.py`, Python + Gemini API) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `gemini-2.5-flash` (or Groq Whisper via `--provider groq`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles one staged `<module>.pack.md` per module via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
+A three-stage path that turns courses the user is entitled to use into knowledge-compiler packs. **Stage 0** (`downloaders/`) uses exported browser sessions to enumerate and resumably acquire JStack, DesignBoost, or Skool media as transcription-ready `.m4a`, while redacting secrets and refusing DRM. **Stage 1** (`main.py`, Python + Gemini API) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `gemini-2.5-flash` (or Groq Whisper via `--provider groq`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles staged packs via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
 
 ## Hard rules (never violate)
 
 - **`.venv` for both test and production.** Only allowed global call: the one-time `python3 -m venv .venv`.
+- **Legitimate Stage 0 access only.** Accept the user's own Netscape cookie export; never automate credentials, broaden access, defeat platform controls, or decrypt DRM. Cookie files, signed URLs, media, and transcripts never enter Git or logs.
+- **Stage 0 defaults to audio-only.** The pipeline transcribes; it does not need watch-quality video. Every new adapter needs dry-run, atomic manifest/resume, redaction, polite rate limiting, and a DRM guard.
 - **Stage 2 is Claude-subscription only — never the Gemini API.** Gemini transcribes; Claude compiles.
-- **Run `main.py input/` for a full course.** Output mirroring is relative to the *target*; pointing at a sub-folder flattens output into `output/`.
+- **Output mirroring is relative to the input target.** Run `main.py input/` for the whole tree. For an isolated batch, pair roots explicitly (`main.py input/<batch> -o output/<batch>`); pointing at a subfolder while leaving the default output flattens it.
 - **Transcripts and packs are staged.** Promotion into `knowledge/` is a human step — never auto-write the library.
 - **Gemini = `gemini-2.5-flash`, thinking off.** One Google AI key in `.env`. A full course needs a **paid tier** (free tier caps at 20 requests/day).
 - **Provider is pluggable; Gemini is the default.** `--provider groq` swaps Stage-1 transcription to Groq Whisper (`whisper-large-v3-turbo`, needs `GROQ_API_KEY`) — cheaper/faster STT with no 64k-ceiling or repetition-loop failure modes; it does **not** change Stage 2. **Choose per course by how much English jargon the audio carries — see _Choosing a provider_ below.** Zen/opencode **can't** transcribe (text-only gateway, its Gemini is broken) — see `MEMORY.md` 2026-07-02.
@@ -43,25 +45,33 @@ Tell from the `input/<course>/` folder name + any `*.description.md` / `manifest
 
 ```bash
 cd knowledge/projects/course-to-markdown
+.venv/bin/python downloaders/jstack.py --list --cookies input/cookies-jstack.txt
+.venv/bin/python downloaders/designboost.py --list
+.venv/bin/python downloaders/skool.py "https://www.skool.com/<group>/classroom/<course>" --dry-run
 PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course (Gemini, default)
+.venv/bin/python -u main.py input/jstack-projects -o output/jstack-projects --provider gemini --language Portuguese
 .venv/bin/python main.py input/ --provider groq --language Portuguese   # Stage 1 via Groq Whisper (needs GROQ_API_KEY)
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
 .venv/bin/python -c "import course_to_markdown.pipeline"               # import smoke check
+.venv/bin/python -m unittest discover -s tests -v                      # downloader safety/contracts
 ```
 
 Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). Run long batches in the background and watch `.logs/transcribe.log`.
 
 ## Definition of done
 
-- Change has an import/smoke check or a real run behind it; accented + long-lesson paths still work.
+- Change has an import/smoke check or a real run behind it; downloader changes also pass the offline suite and an authenticated dry-run when a session is available.
+- No secrets or signed queries are printed/tracked; DRM remains skipped; accented + long-lesson paths still work.
 - `.venv` used throughout; no library auto-writes; staged outputs only.
 - `MEMORY.md` state + this file/`CLAUDE.md` updated together when behavior or gotchas change.
 
 ## Common mistakes
 
 - Using global Python instead of `.venv`.
+- Printing an authenticated/signed media URL (quiet yt-dlp is mandatory for signed streams).
+- Treating a 200 catalog response, folder presence, or one `done` entry as proof that a course is complete — reconcile curriculum, manifest, media, and transcript counts.
 - Running Stage 2 against the Gemini API instead of the Claude subscription.
-- Pointing `main.py` at a sub-folder and flattening the output tree.
+- Pointing `main.py` at a sub-folder without the paired `-o output/<batch>` root and flattening the output tree.
 - Passing accented paths to `files.upload`, or removing the UTF-8 guard / `_ascii_name`.
 - Removing chunking and hitting `MAX_TOKENS` / repetition loops on long lessons.
 - Auto-promoting packs into `knowledge/` without human review.
