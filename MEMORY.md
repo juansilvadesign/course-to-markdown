@@ -1,6 +1,6 @@
 ---
 name: Course-to-Markdown Project Memory
-description: Working memory for the course-to-markdown two-stage pipeline — architecture, decisions, gotchas, and state.
+description: Working memory for the course-to-markdown three-stage pipeline — architecture, decisions, gotchas, and state.
 type: project
 ---
 
@@ -8,7 +8,9 @@ type: project
 
 Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP). See [`README.md`](README.md) for usage; this file holds the decisions, gotchas, and state a future session needs.
 
-## Architecture — two stages, two engines
+## Architecture — three stages, two processing engines
+
+**Stage 0 — authenticated acquisition (Python + exported browser session).** Platform adapters under `downloaders/` enumerate legitimately accessible curricula and write transcription-ready `.m4a` plus resumable manifests under `input/`. JStack has its mature adapter; DesignBoost and Skool share `_shared.py` for Netscape-cookie parsing, redacted logging, quiet signed-URL downloads, DRM refusal, atomic manifests, and audio/video modes. Login is never automated, and working artifacts remain gitignored.
 
 **Stage 1 — transcription (Python + Gemini API · bulk, cheap).** `main.py` recurses `input/`, extracts audio (ffmpeg subprocess), transcribes each lesson with `gemini-2.5-flash` (thinking off, `google-genai` SDK + Files API) — or **Groq Whisper via `--provider groq`** (see Key decisions) — and writes `output/<course>/<module>/<lesson>.transcript.txt` — **mirroring the input folder tree**. The transcript is the deliverable / hand-off.
 
@@ -39,7 +41,7 @@ The simple validation lesson hid four bugs that only a real nested course surfac
 
 ## State (2026-06-23)
 - ✅ **Stage 1 DONE on a real full course.** Motion Boost: **80/80 lessons, 12 module folders, 3 sections (conceito-e-teoria · after-effects · rive), 17.35h, ~158.6k words** — all transcribed clean (0 errors, 0 `MAX_TOKENS`) on Tier 1. Note the **3-level nesting** (course → section → module → lesson); Stage-2 "module" = the numbered leaf folders.
-- ⚠️ **Footgun:** structure-mirroring is relative to the *target*. Run `main.py input/` (root = `input/`) for the full tree; pointing at a sub-folder flattens output into `output/`.
+- ⚠️ **Footgun:** structure-mirroring is relative to the *target*. Run `main.py input/` (root = `input/`) for the full tree. An isolated batch is safe only when roots are paired explicitly (`main.py input/jstack-projects -o output/jstack-projects`); pointing at a subfolder while leaving the default output flattens it.
 - ✅ **Stage 2 DONE — 12/12 module packs compiled & staged** (2026-06-23), all on **Sonnet** (none needed Opus, even the 17-lesson `cards-para-web` at ~1950 tok). Each is `<module>/<slug>.pack.md`, dated correctly, English structure + PT content, under the 2k cap, nothing leaked into `knowledge/`. Language convention chosen by user: **English skeleton, PT content** (cross-lingual).
 - ✅ **Accent caveat RESOLVED.** First batch stripped PT diacritics on ~10 packs (`cards-para-web`/`lottie` fully ASCII) — a cross-lingual artifact of reasoning in English. Root-caused → `agent.md` now mandates "preserve diacritics EXACTLY" (English structure / PT content with full accents). All 10 regenerated in batches of 4; verified all 12 now carry proper accents (non-ASCII counts 54–195).
 - 💡 **Batch lessons:** (1) spawning ~11 `course-module-compiler` agents at once hit a **session limit** mid-run — but agents that had already `Write`-n their pack kept it (disk is ground truth; reports said "limit" yet 11/12 packs were on disk). **Batches of ≤4 are safe; 11 is not.** (2) An agent flagged module-06 lessons 05/06 as "identical transcripts" — **false alarm** (distinct hashes, 40 vs 45 min source videos, different openings); they're distinct lessons sharing a project theme.
@@ -69,8 +71,17 @@ The simple validation lesson hid four bugs that only a real nested course surfac
     - **Smoke-verified end-to-end (user chose 2–3):** `rbac-criando-um-sistema-de-controle-de-acesso-gerenciavel` → **7/7 done, 0 failed, 91 MB** real `.m4a` (proves the inline path + new pull zone); `dominando-os-react-hooks` → **2/2 done** (proves the YouTube path); `formacao-typescript` dry-run **unregressed** (31 lessons, accents intact, still flat in `input/`). Batch driver exercised with `--all lives --limit 3 --dry-run`. **Not yet downloaded: the other 67 lives + 3 projects.**
     - ⚠️ **`order: 999` is an "unset" sentinel, and the `1000-*` folder wart is PRE-EXISTING — left alone deliberately.** 63 live modules + 92 live videos carry it, so `f"{order+1:02d}"` yields `1000-conteúdo`; one live (`preparando-apps-react-para-producao`) has *four* modules all at 999, so the field is meaningless there. **This already shipped in the promoted `formacao-full-stack` tree** (`01-setup/1000-ambiente-de-desenvolvimento`, `02-nodejs/1000-nodejs-com-express`, …) — all 19 packs were compiled from it. Renumbering (e.g. index-based fallback) would rewrite every `lesson_id()` → **`--resume` would re-download whole courses** and new trees would diverge from the promoted ones. Decide deliberately before "fixing" it; also note **39/69 lives wrap everything in a single catch-all module named `conteudo`**, a useless folder level that flattening would remove. Uncommitted.
 
+- ✅ **DesignBoost + Skool Stage 0 adapters shipped — 2026-07-28.** Added `downloaders/designboost.py`, `downloaders/skool.py`, and the shared `_shared.py` safety/resume core. DesignBoost uses the URL-decoded `design-boost.auth_token` from the member-session export against `api.designboost.com.br/student`; it covers `courses`, `workshops`, `single-classes`, and `ai-classes` (AI catalog entries resolve through `/courses/<id>`). An authenticated live dry-run on course `32` resolved **12/12 Vimeo lessons** over two modules. Skool uses the full exported cookie jar plus a normal browser user-agent, parses authenticated `__NEXT_DATA__`, resolves external video links or the page's signed native `stream.video.skool.com` HLS, extracts TipTap description/resource links, and probes commercial HLS DRM markers before download. The supplied `Equação de Valor` URL resolved **1/1 native lesson**, no DRM. No Playwright dependency was needed: the original 403 was a plain-client fingerprint mismatch, not an invalid session.
+    - **Security invariants:** signed queries are never persisted in manifests; shared yt-dlp runs quiet and its captured errors pass through redaction; bearer/cookie headers and token/signature query parameters are masked; sensitive resource queries are stripped; commercial DRM is marked/skipped, never decrypted.
+    - **Verification:** `compileall`, **10/10 offline downloader tests**, and post-hardening authenticated dry-runs on both platforms pass. Cookie/media/transcript trees are covered by `/input/*` and `/output/*` ignores.
+    - **Scope boundary:** adapter support does not authorize bulk acquisition of every visible DesignBoost/Skool course. The current user request explicitly calls for finishing the existing JStack backlog; choose new-platform download scope separately.
+
+- ▶ **JStack catalog completion run started — 2026-07-28.** The three projects were already fully downloaded (Fincheck 32 media, Foodiary 140, WaiterApp 10). A resumable `--all lives` Stage 0 run and an isolated Gemini Stage 1 project run (`input/jstack-projects` → `output/jstack-projects`) were launched. Durable current/resume instructions and terminal checkboxes live in `TASKS.md`; update this bullet with final reconciled counts rather than trusting process history.
+
 ## Map
+- `downloaders/` — Stage-0 adapters + shared authenticated/resumable core
 - `main.py` — Stage-1 CLI · `course_to_markdown/` — package (`config`, `audio`, `gemini_client`, `prompts`, `transcribe`, `formatter`, `pipeline`)
 - `agent.md` — Stage-2 agent (→ `.claude/agents/course-module-compiler.md`)
 - `input/` (drop the course here) · `output/` (transcripts + staged packs) — both gitignored
+- `TASKS.md` — active execution state · `ROADMAP.md` — deferred/v2+ scope
 - Skill: [`../../skills/knowledge-compiler`](../../skills/knowledge-compiler) · Idea: `knowledge/ideas/course-videos-to-knowledge-markdown.md`
