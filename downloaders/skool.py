@@ -38,6 +38,7 @@ try:
         normalize_download_arguments,
         parse_netscape_cookies,
         polite_sleep,
+        redact,
         require_httpx,
         run_lessons,
         slugify,
@@ -56,6 +57,7 @@ except ImportError:  # Direct script execution: python downloaders/skool.py
         normalize_download_arguments,
         parse_netscape_cookies,
         polite_sleep,
+        redact,
         require_httpx,
         run_lessons,
         slugify,
@@ -226,6 +228,19 @@ def _resource_links(value: object) -> list[str]:
                 continue
             candidate = resource.get("url") or resource.get("link")
             if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+                parsed = urlsplit(candidate)
+                sensitive = {
+                    "token",
+                    "sig",
+                    "signature",
+                    "x-amz-signature",
+                    "x-amz-credential",
+                }
+                query_names = {name.lower() for name in parse_qs(parsed.query)}
+                if query_names & sensitive:
+                    candidate = urlunsplit(
+                        (parsed.scheme, parsed.netloc, parsed.path, "", "")
+                    )
                 links.append(candidate)
     return links
 
@@ -359,11 +374,16 @@ def run(args) -> int:
     validate_course_url(args.course_url)
     client = authenticate(args.cookies)
     try:
-        title, final_url, lessons = enumerate_course(
-            client,
-            args.course_url,
-            args.rate,
-        )
+        try:
+            title, final_url, lessons = enumerate_course(
+                client,
+                args.course_url,
+                args.rate,
+            )
+        except SystemExit:
+            raise
+        except Exception as error:  # Never surface a signed playback query.
+            raise SystemExit(f"Skool enumeration failed: {redact(error)}") from None
         return run_lessons(
             platform=PLATFORM,
             course_title=title,

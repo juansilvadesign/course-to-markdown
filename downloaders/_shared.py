@@ -148,12 +148,21 @@ _SECRET_RE = re.compile(
     r"(cookie|authorization|token|sig|signature|expires|key|password)=[^&\s;]+",
     re.IGNORECASE,
 )
+_HEADER_SECRET_RE = re.compile(
+    r"(?i)\b(authorization|cookie|set-cookie)\s*:\s*[^\r\n]+"
+)
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
 
 
 def redact(value: object) -> str:
+    text = _HEADER_SECRET_RE.sub(
+        lambda match: match.group(1) + ": <redacted>",
+        str(value),
+    )
+    text = _BEARER_RE.sub("Bearer <redacted>", text)
     text = _SECRET_RE.sub(
         lambda match: match.group(0).split("=", 1)[0] + "=<redacted>",
-        str(value),
+        text,
     )
     return re.sub(
         r"([?&])(X-Amz-[^&\s]+|token|sig|signature)=[^&\s]+",
@@ -276,15 +285,32 @@ def _download_ytdlp(
         command += ["--add-header", f"{name}:{value}"]
     command.append(asset.url)
     log(f"  yt-dlp -> {destination.name}")
-    subprocess.run(command, check=True)
+    completed = subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode:
+        diagnostic = (completed.stderr or completed.stdout or "").strip()
+        if diagnostic:
+            log(f"  ! yt-dlp: {diagnostic}")
+        raise subprocess.CalledProcessError(completed.returncode, command)
 
 
 def hls_has_drm(client, asset: Asset) -> bool:
     """Detect commercial HLS DRM markers; ordinary AES-128 HLS is not DRM."""
     if ".m3u8" not in urlsplit(asset.url).path.lower():
         return False
-    response = client.get(asset.url, headers=asset.headers, timeout=HTTP_TIMEOUT)
-    response.raise_for_status()
+    try:
+        response = client.get(asset.url, headers=asset.headers, timeout=HTTP_TIMEOUT)
+        response.raise_for_status()
+    except Exception as error:
+        raise RuntimeError(
+            f"HLS safety probe failed at {safe_url(asset.url)}: "
+            f"{type(error).__name__}"
+        ) from None
     manifest = response.text.lower()
     drm_markers = (
         "com.apple.streamingkeydelivery",

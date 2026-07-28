@@ -293,6 +293,8 @@ def parse_content_ref(client, value: str, rate: float) -> tuple[str, int]:
     content_id = int(parts[index + 1])
     query = parse_qs(parsed.query)
     type_hint = (query.get("type") or [None])[0]
+    if isinstance(type_hint, str):
+        type_hint = type_hint.lower().replace("_", "-")
     return _catalog_match(client, content_id, type_hint, rate), content_id
 
 

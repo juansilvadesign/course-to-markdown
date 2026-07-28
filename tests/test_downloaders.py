@@ -58,6 +58,10 @@ class SharedDownloaderTests(unittest.TestCase):
         value = "https://stream.example/video.m3u8?token=secret&sig=also-secret"
         self.assertNotIn("secret", redact(value))
         self.assertEqual(safe_url(value), "https://stream.example/video.m3u8")
+        self.assertNotIn(
+            "top-secret",
+            redact("Authorization: Bearer top-secret\nCookie: sid=top-secret"),
+        )
 
     def test_drm_guard_distinguishes_plain_aes_from_commercial_drm(self) -> None:
         plain = FakeClient(
@@ -179,6 +183,20 @@ class SkoolTests(unittest.TestCase):
         self.assertEqual(parsed.hostname, "stream.video.skool.com")
         self.assertEqual(parse_qs(parsed.query)["token"], ["signed.value"])
         self.assertNotIn("signed.value", safe_url(url or ""))
+
+    def test_resource_links_drop_signed_queries(self) -> None:
+        resources = json.dumps(
+            [
+                {
+                    "url": "https://files.example/guide.pdf"
+                    "?X-Amz-Signature=secret&X-Amz-Credential=credential"
+                }
+            ]
+        )
+        self.assertEqual(
+            skool._resource_links(resources),
+            ["https://files.example/guide.pdf"],
+        )
 
     def test_tiptap_v2_description_becomes_text(self) -> None:
         document = {
