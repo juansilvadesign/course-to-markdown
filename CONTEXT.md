@@ -1,32 +1,39 @@
 # CONTEXT.md — Course → Markdown
 
-> Self-contained project brief for a new AI or human contributor. Read after `CLAUDE.md`/`CODEX.md`. The running code and [`MEMORY.md`](MEMORY.md) are the source of truth; [`README.md`](README.md) is the user-facing usage guide. This file explains the system and, crucially, the failure modes already paid for so they are not rediscovered.
+> Self-contained project brief for a new AI or human contributor. Read after `CLAUDE.md`/`CODEX.md` and the live [`TASKS.md`](TASKS.md). The running code, on-disk manifests/transcripts, and [`MEMORY.md`](MEMORY.md) are the source of truth; [`README.md`](README.md) is the user-facing usage guide. This file explains the system and, crucially, the failure modes already paid for so they are not rediscovered.
 
 ## 1. What this project is
 
-Turns course videos you own into compact, AI-readable knowledge packs for the repo's [`knowledge-compiler`](../../skills/knowledge-compiler) skill. **Two stages, two engines:** Gemini does bulk transcription (API, cheap, dumb); a Claude agent does the compression into packs (subscription, judgment). The two never mix — Gemini never writes a pack, Claude never burns API quota transcribing.
+Turns courses the user is entitled to use into compact, AI-readable knowledge packs for the repo's [`knowledge-compiler`](../../skills/knowledge-compiler) skill. **Three stages, two processing engines:** optional authenticated acquisition writes local media; Gemini/Groq does bulk transcription; a Claude agent compresses selected transcripts into packs on the subscription. The processing engines never mix — Gemini never writes a pack, Claude never burns API quota transcribing.
 
-## 2. Architecture (two stages)
+## 2. Architecture (three stages)
 
 ```text
+STAGE 0 — authenticated acquisition  (Python + user's exported browser session)
+  JStack / DesignBoost / Skool
+    └ curriculum + media → input/<platform>/<course>/<module>/<lesson>.m4a
+       atomic manifest.json → safe --resume; DRM is skipped, never decrypted
+
 STAGE 1 — transcription            (Python + Gemini API · bulk, cheap)
-  input/<course>/<section>/<module>/<lesson>.mp4
+  input/<course>/<section>/<module>/<lesson>.(mp4|m4a|…)
     └ ffmpeg → mono 16 kHz mp3 → [split into ~10-min chunks if > 15 min] → Gemini
        → verbatim transcript → output/<…same tree…>/<lesson>.transcript.txt
 
 STAGE 2 — compilation              (Claude course-module-compiler agent · subscription, NO API)
   output/<…>/<module>/*.transcript.txt
-    └ knowledge-compiler `course.md` playbook → one staged <module-slug>.pack.md per MODULE
+    └ knowledge-compiler `course.md` playbook → staged pack(s) by reusable unit/cluster
        → human review → knowledge/<domain>/courses/<slug>.md
 ```
 
-Stage 1 only transcribes; the verbatim `.txt` is the hand-off. Stage 2 is where the *compression into a knowledge pack* happens — a Claude agent that picks Sonnet (default) or Opus per module, **never** Gemini. Granularity is **per module** = the numbered leaf folders. Note real courses nest 3+ levels (course → section → module → lesson); Stage 1 mirrors whatever tree it is given.
+Stage 0 is optional when media already exists. Stage 1 only transcribes; the verbatim `.txt` is the hand-off. Stage 2 is where the *compression into a knowledge pack* happens — a Claude agent that picks Sonnet (default) or Opus, **never** Gemini. Start from numbered leaf modules, then re-cut by the source's reusable unit when that produces a better library artifact. Real courses nest 3+ levels; Stage 1 mirrors whatever tree it is given.
 
 ## 3. Hard rules (do not violate)
 
 - **`.venv` for BOTH test and production.** The only allowed global call is the one-time `python3 -m venv .venv`. See [[feedback-python-tests-use-venv]].
+- **Legitimate Stage 0 access only.** Use the user's exported Netscape cookie session; never automate credentials, broaden access, bypass DRM, or leak cookie/bearer/signed-query values. Working media and transcripts stay gitignored.
+- **Every Stage 0 adapter is resumable and conservative.** Audio-only default, atomic manifest, dry-run, polite rate floor, redacted output, and explicit `skipped-drm`.
 - **Stage 2 runs on the Claude subscription — never the Gemini API.** Compilation is judgment work; transcription is the only API spend.
-- **Run `main.py input/` for a full course** (root = `input/` → full tree mirrored). Pointing at a *sub-folder* makes that folder the root, so output **flattens** into `output/`. Footgun — see §4.
+- **Mirroring is relative to the input target.** Run `main.py input/` for the whole tree. For an isolated batch, explicitly pair roots (`main.py input/<batch> -o output/<batch>`); otherwise the batch folder is flattened.
 - **Transcripts and packs are STAGED.** Promotion into `knowledge/<domain>/courses/` is a human step; never auto-write into the library.
 - **Gemini = `gemini-2.5-flash`, thinking off** (same provider/pattern as the PsiAtiva gender workflow). One Google AI key in `.env` (`GEMINI_API_KEY` or `GOOGLE_API_KEY`).
 - **A full course needs a paid Gemini tier** (see §4, daily cap).
@@ -54,15 +61,21 @@ These four bit on the first real course (Motion Boost, 80 lessons). A trivial va
 | `COURSE_TO_MD_TRANSCRIBE_MAX_TOKENS` | `65536` | output ceiling |
 | `KNOWLEDGE_COMPILER_DIR` | (auto) | override the `course.md` reference path |
 
-## 6. Current state (2026-06-23)
+## 6. Current state (2026-07-28)
 
-- **Stage 1 done on a real full course.** Motion Boost: 80/80 lessons, 12 module folders, 3 sections (`conceito-e-teoria` · `after-effects` · `rive`), 17.35 h, ~158.6k words — clean (0 errors, 0 `MAX_TOKENS`) on Tier 1.
-- **Stage 2 not yet run on it** (chosen to wait until all 80 were transcribed). Next step: compile the 12 modules → review → promote, target domain likely `knowledge/design/courses/`.
+- **The pipeline is proven end to end.** Motion Boost and JStack Full Stack moved through transcription, compilation/re-cut, review, and manual promotion; long lessons and nested accented paths are production-tested.
+- **Stage 0 supports three platforms.** JStack covers trainings/projects/lives; DesignBoost covers its four member catalogs; Skool covers authenticated classroom URLs and native/external video.
+- **DesignBoost + supplied Skool URL pass authenticated dry-runs.** Offline downloader suite is 10/10.
+- **JStack completion is the live work.** Projects are downloaded and their Gemini transcription is resumable; the 69-live media batch is resumable. Exact current checkboxes and restart commands live in [`TASKS.md`](TASKS.md), not in this slower-moving brief.
 
 ## 7. File map
 
 ```text
 course-to-markdown/
+  downloaders/
+    _shared.py                  # cookie/redaction/DRM/manifest/download core
+    jstack.py                   # JStack trainings/projects/lives
+    designboost.py  skool.py    # authenticated platform adapters
   main.py                       # Stage-1 CLI entry (UTF-8 re-exec guard at top)
   agent.md                      # Stage-2 course-module-compiler agent (symlinked into .claude/agents/)
   course_to_markdown/
@@ -73,7 +86,9 @@ course-to-markdown/
     transcribe.py               # single generate_content call (wrapped in retry)
     formatter.py                # legacy Gemini .md path (--gemini-format only)
     pipeline.py                 # orchestration: _ascii_name, _transcribe_audio (chunking), run()
+  tests/                        # offline downloader contract/safety tests
   input/   output/   .logs/     # all gitignored
+  TASKS.md  ROADMAP.md
   README.md  MEMORY.md  CONTEXT.md  CLAUDE.md  CODEX.md
 ```
 
@@ -84,8 +99,13 @@ cd knowledge/projects/course-to-markdown
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp .env.example .env                              # GEMINI_API_KEY=...
 
+.venv/bin/python downloaders/jstack.py --list --cookies input/cookies-jstack.txt
+.venv/bin/python downloaders/designboost.py --list
+.venv/bin/python downloaders/skool.py "https://www.skool.com/<group>/classroom/<course>" --dry-run
 PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1 (full course)
+.venv/bin/python -u main.py input/jstack-projects -o output/jstack-projects --provider gemini --language Portuguese
 .venv/bin/python main.py input/ --dry-run         # extract audio + report; no API
+.venv/bin/python -m unittest discover -s tests -v
 # Stage 2: ask the Claude session to compile — it spawns course-module-compiler per module.
 ```
 
