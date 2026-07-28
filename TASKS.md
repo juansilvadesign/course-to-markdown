@@ -72,7 +72,7 @@
 - [x] **2.5 Skool reconnaissance** — authenticated Next data, one-module target curriculum, native signed HLS shape, normal browser user-agent requirement.
 - [x] **2.6 Skool implementation** — course URL, curriculum/description/resource parsing, native/external video resolution, DRM guard, resume.
 - [x] **2.7 Skool verification** — authenticated target-course dry-run and offline parser tests.
-- [ ] **2.8 Documentation pass** — README, operating contracts, memory, task tracker, and roadmap agree with the shipped behavior.
+- [x] **2.8 Documentation pass** — README, operating contracts, memory, task tracker, and roadmap agree with the shipped behavior.
 
 ## Phase 3 — Finish the JStack corpus
 

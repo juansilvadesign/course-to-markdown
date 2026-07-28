@@ -1,10 +1,10 @@
 # CLAUDE.md — Course → Markdown
 
-Operating contract for Claude Code sessions in this project. It mirrors [`CODEX.md`](CODEX.md) — keep the two in sync; when you change one, change the other. Read [`CONTEXT.md`](CONTEXT.md) for the full architecture + failure-mode brief, [`MEMORY.md`](MEMORY.md) for state and the hardening narrative, and [`README.md`](README.md) for user-facing usage.
+Operating contract for Claude Code sessions in this project. It mirrors [`CODEX.md`](CODEX.md) — keep the two in sync; when you change one, change the other. Then open [`TASKS.md`](TASKS.md) for the live execution state, [`CONTEXT.md`](CONTEXT.md) for the full architecture + failure-mode brief, [`MEMORY.md`](MEMORY.md) for durable state, [`README.md`](README.md) for user-facing usage, and [`ROADMAP.md`](ROADMAP.md) only for deferred scope.
 
 ## Session start
 
-Read in this order: `CLAUDE.md`/`CODEX.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas) → `README.md` (usage) → only the code relevant to the request. The running code is the source of truth.
+Read in this order: `CLAUDE.md`/`CODEX.md` → `TASKS.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas) → `README.md` (usage) → only the code relevant to the request. The running code and on-disk manifests/transcripts are the source of truth.
 
 ## Product in one paragraph
 

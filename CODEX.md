@@ -1,10 +1,10 @@
 # CODEX.md — Course → Markdown
 
-Read this first when working in this project. It is the compact operating contract for Codex sessions and mirrors [`CLAUDE.md`](CLAUDE.md) — keep the two in sync; when you change one, change the other. Read [`CONTEXT.md`](CONTEXT.md) next for the full architecture + failure-mode brief, [`MEMORY.md`](MEMORY.md) for state, and [`README.md`](README.md) for usage.
+Read this first when working in this project. It is the compact operating contract for Codex sessions and mirrors [`CLAUDE.md`](CLAUDE.md) — keep the two in sync; when you change one, change the other. Then open [`TASKS.md`](TASKS.md) for the live execution state, [`CONTEXT.md`](CONTEXT.md) for the full architecture + failure-mode brief, [`MEMORY.md`](MEMORY.md) for durable state, [`README.md`](README.md) for usage, and [`ROADMAP.md`](ROADMAP.md) only for deferred scope.
 
 ## Session start
 
-Order: `CODEX.md`/`CLAUDE.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas) → `README.md` → only the code relevant to the request. The running code is the source of truth.
+Order: `CODEX.md`/`CLAUDE.md` → `TASKS.md` → `CONTEXT.md` → `MEMORY.md` (state + gotchas) → `README.md` → only the code relevant to the request. The running code and on-disk manifests/transcripts are the source of truth.
 
 ## Product in one paragraph
 
