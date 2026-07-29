@@ -35,6 +35,10 @@ DEFAULT_RATE_SECONDS = 1.5
 AUDIO_FORMATS = {"m4a", "mp3", "opus", "wav"}
 
 
+class DRMProtectedError(RuntimeError):
+    """Media extractor confirmed that the resolved asset is DRM-protected."""
+
+
 @dataclass(frozen=True)
 class NetscapeCookie:
     domain: str
@@ -152,12 +156,14 @@ _HEADER_SECRET_RE = re.compile(
     r"(?i)\b(authorization|cookie|set-cookie)\s*:\s*[^\r\n]+"
 )
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_URL_QUERY_RE = re.compile(r"(https?://[^\s?#]+)\?[^\s#]+", re.IGNORECASE)
 
 
 def redact(value: object) -> str:
+    text = _URL_QUERY_RE.sub(r"\1?<redacted>", str(value))
     text = _HEADER_SECRET_RE.sub(
         lambda match: match.group(1) + ": <redacted>",
-        str(value),
+        text,
     )
     text = _BEARER_RE.sub("Bearer <redacted>", text)
     text = _SECRET_RE.sub(
@@ -295,8 +301,25 @@ def _download_ytdlp(
     if completed.returncode:
         diagnostic = (completed.stderr or completed.stdout or "").strip()
         if diagnostic:
-            log(f"  ! yt-dlp: {diagnostic}")
+            log(f"  ! yt-dlp: {redact(diagnostic)}")
+        if diagnostic_indicates_drm(diagnostic):
+            raise DRMProtectedError("yt-dlp identified commercial DRM")
         raise subprocess.CalledProcessError(completed.returncode, command)
+
+
+def diagnostic_indicates_drm(value: str) -> bool:
+    diagnostic = value.lower()
+    return any(
+        marker in diagnostic
+        for marker in (
+            "drm protected",
+            "drm-protected",
+            "digital rights management",
+            "widevine",
+            "playready",
+            "fairplay",
+        )
+    )
 
 
 def hls_has_drm(client, asset: Asset) -> bool:
@@ -440,6 +463,12 @@ def run_lessons(
                 "status": "done",
                 "title": lesson.title,
             }
+        except DRMProtectedError:
+            manifest["lessons"][lesson_id] = {
+                "status": "skipped-drm",
+                "title": lesson.title,
+            }
+            log(f"  [skipped-drm] {lesson_id}")
         except subprocess.CalledProcessError as error:
             manifest["lessons"][lesson_id] = {
                 "status": "failed",

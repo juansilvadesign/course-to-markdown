@@ -15,6 +15,10 @@ class DailyQuotaExhausted(RuntimeError):
     already-written transcripts are skipped on the next run."""
 
 
+class TruncatedResponseError(RuntimeError):
+    """Gemini stopped before a complete response could be produced."""
+
+
 def _classify_quota_error(exc) -> tuple[bool, float] | None:
     """If `exc` is a 429 / RESOURCE_EXHAUSTED quota error, return
     (is_daily, retry_delay_seconds); otherwise return None."""
@@ -119,12 +123,15 @@ def response_text(resp) -> str:
 
 
 def check_truncated(resp, label: str) -> None:
-    """Warn (stderr) if generation stopped for a non-STOP reason (e.g. token limit)."""
+    """Reject generation that stopped for a non-STOP reason (e.g. token limit)."""
     try:
         fr = resp.candidates[0].finish_reason
         fr_name = getattr(fr, "name", str(fr))
         if fr_name and fr_name not in ("STOP", "FINISH_REASON_STOP"):
-            print(f"  ! warning: {label} finish_reason={fr_name} (output may be truncated)",
-                  file=sys.stderr)
+            raise TruncatedResponseError(
+                f"{label} finish_reason={fr_name}; refusing truncated output"
+            )
+    except TruncatedResponseError:
+        raise
     except Exception:  # noqa: BLE001
         pass

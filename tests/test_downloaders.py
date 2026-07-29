@@ -9,10 +9,20 @@ from urllib.parse import parse_qs, urlsplit
 from downloaders import designboost, skool
 from downloaders._shared import (
     Asset,
+    diagnostic_indicates_drm,
     hls_has_drm,
     parse_netscape_cookies,
     redact,
     safe_url,
+)
+from course_to_markdown.gemini_client import (
+    TruncatedResponseError,
+    check_truncated,
+)
+from scripts.transcribe_batches import (
+    discover_batches,
+    missing_transcripts,
+    validate_batch,
 )
 
 
@@ -85,6 +95,35 @@ class SharedDownloaderTests(unittest.TestCase):
         self.assertTrue(
             hls_has_drm(drm, Asset("https://example.test/drm.m3u8"))
         )
+        self.assertTrue(diagnostic_indicates_drm("This video is DRM protected"))
+        self.assertFalse(diagnostic_indicates_drm("ordinary extractor failure"))
+        self.assertNotIn(
+            "secret-token",
+            redact(
+                "ERROR: unable to download "
+                "https://cdn.example.test/video.m3u8?token=secret-token"
+            ),
+        )
+        self.assertEqual(
+            redact(
+                "ERROR https://cdn.example.test/video.m3u8"
+                "?Policy=opaque&Key-Pair-Id=also-opaque"
+            ),
+            "ERROR https://cdn.example.test/video.m3u8?<redacted>",
+        )
+
+    def test_truncated_model_output_is_rejected(self) -> None:
+        class FinishReason:
+            name = "MAX_TOKENS"
+
+        class Candidate:
+            finish_reason = FinishReason()
+
+        class Response:
+            candidates = [Candidate()]
+
+        with self.assertRaises(TruncatedResponseError):
+            check_truncated(Response(), "transcription")
 
 
 class DesignBoostTests(unittest.TestCase):
@@ -215,6 +254,48 @@ class SkoolTests(unittest.TestCase):
         self.assertEqual(
             skool._tiptap_text("[v2]" + json.dumps(document)),
             "Hello\nworld",
+        )
+
+
+class TranscriptionFanoutTests(unittest.TestCase):
+    def test_discovers_only_direct_media_courses_and_rejects_dirty_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            input_root = root / "input"
+            output_root = root / "output"
+            clean = input_root / "clean"
+            dirty = input_root / "dirty"
+            empty = input_root / "empty"
+            for directory in (clean, dirty, empty):
+                directory.mkdir(parents=True)
+            (clean / "lesson.m4a").write_bytes(b"media")
+            (clean / "manifest.json").write_text(
+                json.dumps({"lessons": {"lesson": {"status": "done"}}}),
+                encoding="utf-8",
+            )
+            (dirty / "lesson.m4a").write_bytes(b"media")
+            (dirty / "lesson.m4a.part").write_bytes(b"partial")
+            (dirty / "manifest.json").write_text(
+                json.dumps({"lessons": {"lesson": {"status": "failed"}}}),
+                encoding="utf-8",
+            )
+
+            batches = discover_batches(input_root, output_root)
+            clean_problems = validate_batch(batches[0])
+            dirty_problems = validate_batch(batches[1])
+            missing_before = missing_transcripts(batches[0])
+            transcript = output_root / "clean" / "lesson.transcript.txt"
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text("done", encoding="utf-8")
+            missing_after = missing_transcripts(batches[0])
+
+        self.assertEqual([batch.name for batch in batches], ["clean", "dirty"])
+        self.assertEqual(clean_problems, [])
+        self.assertEqual(missing_before, [Path("lesson.m4a")])
+        self.assertEqual(missing_after, [])
+        self.assertEqual(
+            dirty_problems,
+            ["1 partial download(s)", "1 failed manifest lesson(s)"],
         )
 
 
