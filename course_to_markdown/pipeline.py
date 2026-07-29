@@ -7,14 +7,32 @@ note is opt-in via `gemini_format` (the legacy single-provider path).
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import sys
 import tempfile
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import audio, config, formatter, gemini_client, groq_client, transcribe
+
+
+REPETITION_NGRAM_WORDS = 8
+MAX_REPEATED_NGRAM = 50
+
+
+def max_repeated_ngram(text: str, size: int = REPETITION_NGRAM_WORDS) -> int:
+    """Return the highest frequency of one exact word n-gram in a transcript."""
+    words = re.findall(r"\w+", text.casefold())
+    if size < 1 or len(words) < size:
+        return 0
+    counts = Counter(
+        tuple(words[index : index + size])
+        for index in range(len(words) - size + 1)
+    )
+    return max(counts.values(), default=0)
 
 
 def _transcribe_one(client, path: Path, opts: Options) -> str:
@@ -138,6 +156,17 @@ def process_file(client, src: Path, rel: Path, opts: Options) -> Result:
             transcript = _transcribe_audio(client, audio_out, work_dir, opts)
             if not transcript:
                 return Result(src, "error", error="empty transcript from model")
+            repeated = max_repeated_ngram(transcript)
+            if repeated >= MAX_REPEATED_NGRAM:
+                return Result(
+                    src,
+                    "error",
+                    error=(
+                        f"repetition loop detected: one "
+                        f"{REPETITION_NGRAM_WORDS}-word sequence repeated "
+                        f"{repeated} times"
+                    ),
+                )
             txt_path.write_text(transcript, encoding="utf-8")
 
         # Default: stop here. The transcript is the hand-off to the knowledge-compiler agent.

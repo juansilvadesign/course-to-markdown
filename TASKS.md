@@ -15,6 +15,24 @@
 - **Open scope:** convenience features, attachment capture, bulk Skool discovery, and Stage 2 compilation may move to [`ROADMAP.md`](ROADMAP.md) to protect the fixed outcome.
 - **Replan trigger:** a platform response shape changes, a session expires, DRM is encountered, or provider quota prevents a clean resumable run.
 
+## ⏸ Checkpoint — 2026-07-28
+
+- **Gemini is deliberately paused at the user's request.** All `main.py` workers were interrupted and a process check confirmed none remain. Do not restart Stage 1 until the user explicitly resumes it.
+- **JStack Stage 0 remains active and resumable.** Snapshot while catalog item 20/69 (`paginacao-offset-vs-cursor-based-e-valores-pre-computados`) was downloading: 467 live media files, 21 live manifests, zero failed statuses, and one downloader-owned active partial.
+- **Projects are count-complete but not quality-complete:** 182 media / 182 non-empty transcript files. Foodiary is clean at 140/140 and WaiterApp at 10/10. One Fincheck transcript remains invalid: `02-front-end/03-dashboard/04-implementando-dropdown-de-sair-da-conta.transcript.txt` still contains a repetition loop after the five-minute-chunk repair. The three-minute repair was interrupted before it could replace the file.
+- **Lives snapshot:** 325 non-empty transcripts. Newly completed courses include React Router 40/40, Serverless Framework 36/36, DynamoDB/Algolia 21/21, Auth.js credentials 12/12, Auth.js social/RBAC 22/22, AWS SES 11/11, Cognito RBAC 19/19, and federated Cognito login 25/25. Interrupted resumable courses include Multi-tenant 6/28 and Fastify 22/26.
+- **Quality guards now reject both failure modes:** a non-`STOP` Gemini finish reason and any exact 8-word sequence repeated 50+ times. The offline suite passes 13/13.
+- **First Gemini action after an explicit resume:** replace the flagged Fincheck lesson with the three-minute command below, run `/tmp/course_to_md_quality_scan.py input/jstack-projects output/jstack-projects`, then run the project fan-out reconciliation with `--jobs 1`.
+
+  ```bash
+  COURSE_TO_MD_CHUNK_THRESHOLD_SEC=180 \
+  COURSE_TO_MD_CHUNK_LENGTH_SEC=180 \
+  .venv/bin/python -u main.py \
+    input/jstack-projects/fincheck/02-front-end/03-dashboard/04-implementando-dropdown-de-sair-da-conta.m4a \
+    -o output/jstack-projects/fincheck/02-front-end/03-dashboard \
+    --provider gemini --language Portuguese --retranscribe
+  ```
+
 ---
 
 ## ✅ Done so far
@@ -31,11 +49,11 @@
 - [x] **Supplied Skool course live dry-run passed (2026-07-28).** `Equação de Valor` resolved 1/1 lesson and its signed stream with zero DRM/unresolved assets.
 - [x] **Shared safety core added.** `_shared.py` owns Netscape-cookie parsing, query/token redaction, quiet signed-URL yt-dlp calls, DRM checks, atomic manifests, audio/video modes, and resumability.
 - [x] **Bounded Stage 1 fan-out added.** `scripts/transcribe_batches.py` maps each direct child course to its own output root, caps concurrent subprocesses, validates manifests/partials, logs per course, and holds a batch lock so workers cannot overlap.
-- [x] **Offline safety/contract tests added.** Twelve unit tests cover cookie parsing, secret redaction, DRM discrimination, truncated-model-output rejection, DesignBoost curriculum mapping, Skool Next-data parsing, nested curriculum flattening, native signed URLs/resources, TipTap text, and fan-out discovery/validation.
+- [x] **Offline safety/contract tests added.** Thirteen unit tests cover cookie parsing, secret redaction, DRM discrimination, truncated/repetitive-model-output rejection, DesignBoost curriculum mapping, Skool Next-data parsing, nested curriculum flattening, native signed URLs/resources, TipTap text, and fan-out discovery/validation.
 
 ## ▶ Next session — start here
 
-1. **Check disk state before starting another long job.** Media and transcripts are the source of truth; terminal history is not.
+1. **Check disk state before starting another long job.** Media and transcripts are the source of truth; terminal history is not. Gemini is paused by user request; do not restart it without an explicit go-ahead.
 2. **Resume JStack lives if incomplete:**
 
    ```bash
@@ -88,16 +106,16 @@
 
 - [x] **3.1 Trainings media + transcripts** — both formations complete.
 - [x] **3.2 Projects media** — Fincheck, Foodiary, and WaiterApp complete.
-- [ ] **3.3 Projects transcripts** — run Gemini against `input/jstack-projects` with the paired `output/jstack-projects` root; retry transient errors.
-- [ ] **3.4 Lives media** — complete all 69 accessible catalog items with `--resume`.
-- [ ] **3.5 Lives transcripts** — after the Stage 0 process exits cleanly, run bounded course fan-out (`scripts/transcribe_batches.py --jobs 3`) with Gemini because the courses are code-jargon-heavy.
+- [ ] **3.3 Projects transcripts** — 182/182 files exist, but one Fincheck repetition-loop transcript must be replaced and the quality scan must return zero flags before this is done.
+- [ ] **3.4 Lives media** — active at item 20/69 in the checkpoint snapshot; complete all accessible catalog items with `--resume`.
+- [ ] **3.5 Lives transcripts** — paused by user request at 325 non-empty transcripts; after explicit resume and a clean Stage 0 exit, run bounded course fan-out (`scripts/transcribe_batches.py --jobs 3`) with Gemini because the courses are code-jargon-heavy.
 - [ ] **3.6 Reconciliation** — for each content item: accessible lesson count = manifest terminal states = media + legitimate non-video entries; media count = transcript count.
 - [ ] **3.7 Failure sweep** — no `failed` manifest entries, no zero-byte/`.part` files, no missing transcript for an audio file.
 
 ## Phase 4 — Release verification and handoff
 
 - [x] **4.1 Import/compile smoke** — every downloader imports and both new CLIs expose help successfully.
-- [x] **4.2 Offline safety/contract suite** — `.venv/bin/python -m unittest discover -s tests -v` passes 12/12.
+- [x] **4.2 Offline safety/contract suite** — `.venv/bin/python -m unittest discover -s tests -v` passes 13/13.
 - [x] **4.3 Authenticated adapter smoke** — DesignBoost and Skool dry-runs pass without downloading media.
 - [ ] **4.4 Full test rerun after docs/final edits.**
 - [ ] **4.5 Git hygiene** — no cookies, API payloads, media, transcripts, tokens, or signed URLs are tracked.

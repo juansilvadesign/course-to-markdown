@@ -19,6 +19,7 @@ from course_to_markdown.gemini_client import (
     TruncatedResponseError,
     check_truncated,
 )
+from course_to_markdown.pipeline import max_repeated_ngram
 from scripts.transcribe_batches import (
     discover_batches,
     missing_transcripts,
@@ -124,6 +125,17 @@ class SharedDownloaderTests(unittest.TestCase):
 
         with self.assertRaises(TruncatedResponseError):
             check_truncated(Response(), "transcription")
+
+    def test_repetition_loop_is_detected_without_finish_reason(self) -> None:
+        loop = "one two three four five six seven eight "
+        self.assertGreaterEqual(max_repeated_ngram(loop * 60), 50)
+        self.assertLess(
+            max_repeated_ngram(
+                "one two three four five six seven eight "
+                "nine ten eleven twelve"
+            ),
+            50,
+        )
 
 
 class DesignBoostTests(unittest.TestCase):

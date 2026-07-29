@@ -57,7 +57,7 @@ PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 
 .venv/bin/python -m unittest discover -s tests -v                      # downloader safety/contracts
 ```
 
-Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). A Gemini response with a non-`STOP` finish reason is an error and is never saved as a successful transcript; retry `MAX_TOKENS` lessons with shorter chunk env values plus `--retranscribe`. Run long batches in the background and watch `.logs/transcribe.log`.
+Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). A Gemini response with a non-`STOP` finish reason or an exact 8-word sequence repeated 50+ times is an error and is never saved as a successful transcript; retry the lesson with shorter chunk env values plus `--retranscribe`. Run long batches in the background and watch `.logs/transcribe.log`.
 
 ## Definition of done
 
