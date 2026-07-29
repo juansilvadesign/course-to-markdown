@@ -50,13 +50,14 @@ cd knowledge/projects/course-to-markdown
 .venv/bin/python downloaders/skool.py "https://www.skool.com/<group>/classroom/<course>" --dry-run
 PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course (Gemini, default)
 .venv/bin/python -u main.py input/jstack-projects -o output/jstack-projects --provider gemini --language Portuguese
+.venv/bin/python -u scripts/transcribe_batches.py input/jstack-lives output/jstack-lives --jobs 3 --provider gemini --language Portuguese
 .venv/bin/python main.py input/ --provider groq --language Portuguese   # Stage 1 via Groq Whisper (needs GROQ_API_KEY)
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
 .venv/bin/python -c "import course_to_markdown.pipeline"               # import smoke check
 .venv/bin/python -m unittest discover -s tests -v                      # downloader safety/contracts
 ```
 
-Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). Run long batches in the background and watch `.logs/transcribe.log`.
+Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). A Gemini response with a non-`STOP` finish reason is an error and is never saved as a successful transcript; retry `MAX_TOKENS` lessons with shorter chunk env values plus `--retranscribe`. Run long batches in the background and watch `.logs/transcribe.log`.
 
 ## Definition of done
 
@@ -72,6 +73,7 @@ Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file
 - Treating a 200 catalog response, folder presence, or one `done` entry as proof that a course is complete — reconcile curriculum, manifest, media, and transcript counts.
 - Running Stage 2 against the Gemini API instead of the Claude subscription.
 - Pointing `main.py` at a sub-folder without the paired `-o output/<batch>` root and flattening the output tree.
+- Starting `scripts/transcribe_batches.py` before the Stage 0 batch exits, or alongside an overlapping `main.py` worker.
 - Passing accented paths to `files.upload`, or removing the UTF-8 guard / `_ascii_name`.
 - Removing chunking and hitting `MAX_TOKENS` / repetition loops on long lessons.
 - Auto-promoting packs into `knowledge/` without human review.

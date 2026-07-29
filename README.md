@@ -117,6 +117,16 @@ Output mirroring is relative to the input target. For the entire tree, use `inpu
   -o output/jstack-projects --provider gemini --language Portuguese
 ```
 
+For a large Stage 0 batch containing many direct child courses, wait until its downloader exits cleanly, then use bounded fan-out. It validates that every child has a clean manifest and no `.part` files, gives each course an isolated subprocess/output root, and logs under `.logs/`:
+
+```bash
+.venv/bin/python -u scripts/transcribe_batches.py \
+  input/jstack-lives output/jstack-lives \
+  --jobs 3 --provider gemini --language Portuguese
+```
+
+Gemini responses that stop for `MAX_TOKENS` or another non-`STOP` reason are rejected, not saved as successful transcripts. For an unusually dense lesson, retry that file with `--retranscribe` and shorter `COURSE_TO_MD_CHUNK_THRESHOLD_SEC` / `COURSE_TO_MD_CHUNK_LENGTH_SEC` values.
+
 **Providers.** Stage 1 defaults to Gemini (`gemini-2.5-flash`). Pass `--provider groq` to transcribe with Groq's Whisper (`whisper-large-v3-turbo`) instead — a purpose-built STT that's cheaper and faster, with none of the LLM output-ceiling / repetition-loop failure modes. Tradeoff: Whisper turbo can mis-render English technical terms spoken inside Portuguese (on the TypeScript course the type `any` came out as "N"), so for code-dense courses Gemini reads keywords more faithfully — though the Stage-2 Claude compilation usually repairs it from context. Groq's free tier is rate-limited — for `whisper-large-v3-turbo` the binding cap is audio duration: roughly **8 hours of audio per day** (plus ~2 h/hour, 20 req/min, 2,000 req/day), so a long course spans several days unless you upgrade. See [`groq-rate-limits.md`](../../sources/groq-rate-limits.md) for the full table. *(Zen/opencode was evaluated but can't transcribe — it's a text-only gateway; only Gemini takes audio and Zen's Gemini integration is broken.)*
 
 ## Stage 2 — compile per module (Claude agent)
@@ -154,6 +164,7 @@ course-to-markdown/
   input/                        # drop the course here (gitignored)
   output/                       # transcripts + staged packs land here, structure mirrored (gitignored)
   tests/                        # offline downloader contract/safety tests
+  scripts/transcribe_batches.py # bounded, non-overlapping Stage-1 course fan-out
   requirements.txt  .env.example
 ```
 

@@ -10,7 +10,7 @@
 ## Delivery frame
 
 - **Timebox:** the current implementation cycle, closing at a verified handoff rather than a calendar date.
-- **Capacity:** one local workstation; at most one long media download and one isolated transcription batch at the same time; existing Gemini paid tier and user-exported sessions.
+- **Capacity:** one local workstation; at most one long media download and four non-overlapping, isolated transcription batches at the same time (fan-out defaults to three); existing Gemini paid tier and user-exported sessions.
 - **Fixed outcome:** reliable DesignBoost + Skool support and a finished JStack Stage 0/1 corpus.
 - **Open scope:** convenience features, attachment capture, bulk Skool discovery, and Stage 2 compilation may move to [`ROADMAP.md`](ROADMAP.md) to protect the fixed outcome.
 - **Replan trigger:** a platform response shape changes, a session expires, DRM is encountered, or provider quota prevents a clean resumable run.
@@ -22,6 +22,7 @@
 - [x] **Stage 1 is production-proven.** Nested input mirroring, UTF-8 paths, ASCII-safe Gemini uploads, long-audio chunking, per-request timeout, quota-aware clean stop, and resumable output all survived full courses.
 - [x] **Stage 2 is production-proven.** Packs are compiled on the Claude subscription, staged for review, and never auto-promoted into `knowledge/`.
 - [x] **JStack downloader generalized.** `downloaders/jstack.py` covers lives, projects, and trainings; cursor pagination, per-library Bunny hosts, YouTube outliers, audio-only default, manifests, and `--resume` are implemented.
+- [x] **New JStack cookie export verified (2026-07-28).** `input/cookies-jstack.txt` authenticates and sees the full 74-item catalog: 69 lives, 3 projects, and 2 trainings.
 - [x] **JStack trainings complete.** `formacao-typescript` and `formacao-full-stack` are downloaded and transcribed; Full Stack has also been compiled and promoted through the human-review flow.
 - [x] **JStack projects downloaded.** Fincheck, Foodiary, and WaiterApp media trees are complete and manifest-backed.
 - [x] **DesignBoost adapter implemented.** `downloaders/designboost.py` authenticates through the exported member session, lists all four catalogs, resolves course/workshop module trees plus lives and AI-course entries, and delegates Vimeo media to the shared downloader core.
@@ -29,7 +30,8 @@
 - [x] **Skool adapter implemented.** `downloaders/skool.py` reads authenticated `__NEXT_DATA__`, preserves sets/sections, resolves external or signed native HLS video, extracts TipTap descriptions/resource links, and rejects commercial HLS DRM markers.
 - [x] **Supplied Skool course live dry-run passed (2026-07-28).** `Equação de Valor` resolved 1/1 lesson and its signed stream with zero DRM/unresolved assets.
 - [x] **Shared safety core added.** `_shared.py` owns Netscape-cookie parsing, query/token redaction, quiet signed-URL yt-dlp calls, DRM checks, atomic manifests, audio/video modes, and resumability.
-- [x] **Downloader tests added.** Ten offline unit tests cover cookie parsing, secret redaction, DRM discrimination, DesignBoost curriculum mapping, Skool Next-data parsing, nested curriculum flattening, native signed URLs/resources, and TipTap text.
+- [x] **Bounded Stage 1 fan-out added.** `scripts/transcribe_batches.py` maps each direct child course to its own output root, caps concurrent subprocesses, validates manifests/partials, logs per course, and holds a batch lock so workers cannot overlap.
+- [x] **Offline safety/contract tests added.** Twelve unit tests cover cookie parsing, secret redaction, DRM discrimination, truncated-model-output rejection, DesignBoost curriculum mapping, Skool Next-data parsing, nested curriculum flattening, native signed URLs/resources, TipTap text, and fan-out discovery/validation.
 
 ## ▶ Next session — start here
 
@@ -41,13 +43,21 @@
      --cookies input/cookies-jstack.txt --resume
    ```
 
-3. **Resume the isolated JStack transcription batches with explicit output roots:**
+3. **Resume JStack transcription with explicit paired roots.** One aggregate command is safe after a restart; while per-project/per-course workers are live, never launch an overlapping aggregate worker:
 
    ```bash
    .venv/bin/python -u main.py input/jstack-projects \
      -o output/jstack-projects --provider gemini --language Portuguese
    .venv/bin/python -u main.py input/jstack-lives \
      -o output/jstack-lives --provider gemini --language Portuguese
+   ```
+
+   After the entire Stage 0 batch has exited cleanly, prefer bounded course fan-out for the large lives tree:
+
+   ```bash
+   .venv/bin/python -u scripts/transcribe_batches.py \
+     input/jstack-lives output/jstack-lives \
+     --jobs 3 --provider gemini --language Portuguese
    ```
 
 4. **Reconcile media, manifest, and transcript counts.** Re-run the resumable command for any failed/missing lessons; do not infer completeness from folder presence.
@@ -80,14 +90,14 @@
 - [x] **3.2 Projects media** — Fincheck, Foodiary, and WaiterApp complete.
 - [ ] **3.3 Projects transcripts** — run Gemini against `input/jstack-projects` with the paired `output/jstack-projects` root; retry transient errors.
 - [ ] **3.4 Lives media** — complete all 69 accessible catalog items with `--resume`.
-- [ ] **3.5 Lives transcripts** — start only against finished/resolved media trees; use Gemini because the courses are code-jargon-heavy.
+- [ ] **3.5 Lives transcripts** — after the Stage 0 process exits cleanly, run bounded course fan-out (`scripts/transcribe_batches.py --jobs 3`) with Gemini because the courses are code-jargon-heavy.
 - [ ] **3.6 Reconciliation** — for each content item: accessible lesson count = manifest terminal states = media + legitimate non-video entries; media count = transcript count.
 - [ ] **3.7 Failure sweep** — no `failed` manifest entries, no zero-byte/`.part` files, no missing transcript for an audio file.
 
 ## Phase 4 — Release verification and handoff
 
 - [x] **4.1 Import/compile smoke** — every downloader imports and both new CLIs expose help successfully.
-- [x] **4.2 Offline downloader suite** — `.venv/bin/python -m unittest discover -s tests -v` passes 10/10.
+- [x] **4.2 Offline safety/contract suite** — `.venv/bin/python -m unittest discover -s tests -v` passes 12/12.
 - [x] **4.3 Authenticated adapter smoke** — DesignBoost and Skool dry-runs pass without downloading media.
 - [ ] **4.4 Full test rerun after docs/final edits.**
 - [ ] **4.5 Git hygiene** — no cookies, API payloads, media, transcripts, tokens, or signed URLs are tracked.
