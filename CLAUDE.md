@@ -48,6 +48,7 @@ Tell from the `input/<course>/` folder name + any `*.description.md` / `manifest
 - **Audio chunking** (`_transcribe_audio` / `audio.split_audio`, >15 min → ~10 min) — long lessons otherwise trip the 64k output ceiling *and* push the model into phrase-repetition loops (seen 1011×). If a transcript is absurdly large or repeats a sentence dozens of times, chunking regressed.
 - **10-min per-request timeout** (`HttpOptions(timeout=)`) — a slept machine froze a call for 11h. Keep it so a frozen call errors and the batch resumes.
 - **Quota handling** (`generate_with_retry` + `DailyQuotaExhausted`) — retry per-minute 429s, stop cleanly on the per-day cap. Don't replace with blind retries.
+- **The OpenRouter silent audio-drop is common, not exotic** (`_assert_audio_was_received` + the retry in `transcribe_file`'s 200-branch) — MiMo returns HTTP 200, `finish_reason: stop`, and a fluent *"I don't see an audio file attached"* on **~7% of requests** (4 of 57 measured on `jstack-lives`, 2026-08-04). It is a per-request delivery fault, not a property of the file, so the client retries it like a 429. Keep both halves: the wpm floor is the only thing that detects it, and the retry is the only thing that stops every batch from leaving a residue.
 
 ## Commands
 
@@ -60,6 +61,8 @@ PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 
 .venv/bin/python -u main.py input/jstack-projects -o output/jstack-projects --provider gemini --language Portuguese
 .venv/bin/python -u scripts/transcribe_batches.py input/jstack-lives output/jstack-lives --jobs 3 --provider openrouter --language Portuguese
 .venv/bin/python main.py input/ --provider groq --language Portuguese   # Stage 1 via Groq Whisper (needs GROQ_API_KEY)
+.venv/bin/python scripts/reconcile.py input/<batch> output/<batch>       # is the batch actually finished? (TASKS 3.6+3.7)
+.venv/bin/python scripts/reconcile.py input/<batch> output/<batch> -v 5  # ...and name the missing lessons
 .venv/bin/python scripts/jargon_audit.py output/<course>                # flag fluent term substitution (MiMo)
 .venv/bin/python scripts/jargon_audit.py output/<c>/<l>.transcript.txt --reference <other-provider>.transcript.txt
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
@@ -80,10 +83,10 @@ Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file
 
 - Using global Python instead of `.venv`.
 - Printing an authenticated/signed media URL (quiet yt-dlp is mandatory for signed streams).
-- Treating a 200 catalog response, folder presence, or one `done` entry as proof that a course is complete — reconcile curriculum, manifest, media, and transcript counts.
+- Treating a 200 catalog response, folder presence, or one `done` entry as proof that a course is complete — run `scripts/reconcile.py`. **A clean manifest proves nothing:** a killed downloader leaves `<lesson>.mp4.part`/`.ytdl` behind and writes *no* manifest entry at all, so the course reads 100% `done` with the lesson simply absent (dynamodb lesson 11, 2026-08-04). The manifest records what the downloader finished, never what the curriculum contains; only the catalog listing does, and that needs a live session.
 - Running Stage 2 against the Gemini API instead of the Claude subscription.
 - **Accepting MiMo/OpenRouter output on a code-dense course without `scripts/jargon_audit.py`** — its substitutions are fluent and pass every other guard.
-- Assuming a model's advertised `input_modalities: [audio]` means its OpenRouter provider actually delivers the audio (`nemotron-omni:free` returns HTTP 200 + `stop` and silently ignores it).
+- Assuming a model's advertised `input_modalities: [audio]` means its OpenRouter provider actually delivers the audio — `nemotron-omni:free` ignores it **always**, and **MiMo drops it on ~7% of requests**; both return HTTP 200 + `stop`. Treat a batch that ends with a few `did not receive the audio` errors as normal residue to re-run, not as broken media.
 - Pointing `main.py` at a sub-folder without the paired `-o output/<batch>` root and flattening the output tree.
 - Starting `scripts/transcribe_batches.py` before the Stage 0 batch exits, or alongside an overlapping `main.py` worker.
 - Passing accented paths to `files.upload`, or removing the UTF-8 guard / `_ascii_name`.
