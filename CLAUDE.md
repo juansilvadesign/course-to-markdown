@@ -8,7 +8,7 @@ Read in this order: `CLAUDE.md`/`CODEX.md` → `TASKS.md` → `CONTEXT.md` → `
 
 ## Product in one paragraph
 
-A three-stage path that turns courses the user is entitled to use into knowledge-compiler packs. **Stage 0** (`downloaders/`) uses exported browser sessions to enumerate and resumably acquire JStack, DesignBoost, or Skool media as transcription-ready `.m4a`, while redacting secrets and refusing DRM. **Stage 1** (`main.py`, Python + Gemini API) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `gemini-2.5-flash` (or Groq Whisper via `--provider groq`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles staged packs via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
+A three-stage path that turns courses the user is entitled to use into knowledge-compiler packs. **Stage 0** (`downloaders/`) uses exported browser sessions to enumerate and resumably acquire JStack, DesignBoost, or Skool media as transcription-ready `.m4a`, while redacting secrets and refusing DRM. **Stage 1** (`main.py`, Python) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `xiaomi/mimo-v2.5` via OpenRouter by default (or `gemini-2.5-flash`, or Groq Whisper — `--provider {openrouter,gemini,groq}`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles staged packs via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
 
 ## Hard rules (never violate)
 
@@ -19,17 +19,25 @@ A three-stage path that turns courses the user is entitled to use into knowledge
 - **Output mirroring is relative to the input target.** Run `main.py input/` for the whole tree. For an isolated batch, pair roots explicitly (`main.py input/<batch> -o output/<batch>`); pointing at a subfolder while leaving the default output flattens it.
 - **Transcripts and packs are staged.** Promotion into `knowledge/` is a human step — never auto-write the library.
 - **Gemini = `gemini-2.5-flash`, thinking off.** One Google AI key in `.env`. A full course needs a **paid tier** (free tier caps at 20 requests/day).
-- **Provider is pluggable; Gemini is the default.** `--provider groq` swaps Stage-1 transcription to Groq Whisper (`whisper-large-v3-turbo`, needs `GROQ_API_KEY`) — cheaper/faster STT with no 64k-ceiling or repetition-loop failure modes; it does **not** change Stage 2. **Choose per course by how much English jargon the audio carries — see _Choosing a provider_ below.** Zen/opencode **can't** transcribe (text-only gateway, its Gemini is broken) — see `MEMORY.md` 2026-07-02.
+- **Provider is pluggable; `openrouter` is the default (changed 2026-08-04, was `gemini`).** `--provider {openrouter,gemini,groq}` selects the Stage-1 backend; none of them change Stage 2. `openrouter` = `xiaomi/mimo-v2.5` with base64-inline audio (needs `OPENROUTER_API_KEY` **and a funded balance**); `groq` = Whisper `whisper-large-v3-turbo` (needs `GROQ_API_KEY`). **Choose per course by how much English jargon the audio carries — see _Choosing a provider_ below.** Zen/opencode **can't** transcribe (text-only gateway, its Gemini is broken) — see `MEMORY.md` 2026-07-02.
+- **⚠️ The default trades jargon fidelity for cost and loop-immunity — know this before pointing it at a code-dense course.** MiMo rewrote the TypeScript type `unknown` as `any` in **7/7** occurrences on a real lesson, *fluently* — so it passes every guard here (finish reason, repetition, word count, diacritics, wpm). Audit MiMo output with `scripts/jargon_audit.py`; for code-dense courses prefer `--provider gemini`.
 - **Never invent dates** in any frontmatter — the code injects today's date; the Stage-2 agent carries the same rule.
 
-## Choosing a provider (Gemini vs Groq)
+## Choosing a provider (OpenRouter / Gemini / Groq)
 
-Decide **per course, at invocation** — this affects **Stage 1 only** (Stage 2 Claude compilation is unchanged). The deciding variable is **how much English technical vocabulary the audio contains**: Whisper turbo garbles English terms spoken inside Portuguese (it rendered the TS type `any` as "N", "um N.ts"), while Gemini reads them faithfully.
+Decide **per course, at invocation** — this affects **Stage 1 only** (Stage 2 Claude compilation is unchanged). The deciding variable is **how much English technical vocabulary the audio contains**. Only Gemini reads English terms embedded in Portuguese speech faithfully; **both cheap providers corrupt them, in different ways**:
 
-- **Lots of English jargon → Gemini (default).** Programming / DevOps / data courses, and any course thick with English tool, product, or API names (TypeScript, React, Node, Docker, After Effects, Rive, Figma…). Fidelity wins exactly where the words carry the meaning.
-- **Mostly Portuguese prose → Groq (`--provider groq`).** Business, marketing, communication, soft-skills, or theory courses where English terms are rare — Whisper's weakness never bites, and you get cheaper + faster transcription with no output-ceiling or repetition-loop risk.
-- **Gemini quota exhausted with no paid tier?** For a low-jargon course, switch to Groq to keep moving. For a jargon-heavy one, prefer waiting / upgrading Gemini over accepting the `any`→"N" class of errors.
-- **Unsure → Gemini** (safer on fidelity), or transcribe one representative lesson with each and eyeball how the English terms render before committing the whole batch.
+| provider | $/h audio | output ceiling | jargon fidelity |
+|---|---|---|---|
+| `openrouter` (`xiaomi/mimo-v2.5`) — **default** | **~$0.014** | **131k** | ⛔ **fluent** substitution (`unknown`→`any`, 7/7) |
+| `gemini` (`gemini-2.5-flash`) | ~$0.155 | 65,535 | ✅ best |
+| `groq` (`whisper-large-v3-turbo`) | ~$0.040 | n/a (real STT) | ⛔ garbled (`any`→"N") |
+
+- **Lots of English jargon → `--provider gemini`.** Programming / DevOps / data courses thick with English tool, product, or API names. Fidelity wins exactly where the words carry the meaning. **This is still true after the default changed** — the default optimizes cost and loop-immunity, not fidelity.
+- **Mostly Portuguese prose → the default (`openrouter`), or `groq`.** Business, marketing, communication, soft-skills, theory. Neither weakness bites when English terms are rare.
+- **A lesson Gemini cannot transcribe at any chunk size → `openrouter`.** MiMo's 131k ceiling is the specific cure for the `MAX_TOKENS`+repetition-loop failure; it repaired a Fincheck lesson that had survived two Gemini repair attempts. Verify the result with `scripts/jargon_audit.py` before accepting it.
+- **Unsure → `gemini`** (safest on fidelity), or transcribe one representative lesson with each and diff the English terms (`scripts/jargon_audit.py --reference`) before committing the whole batch.
+- ⛔ **The two cheap providers fail differently and that matters.** Groq's corruption is self-announcing ("N" is obviously wrong). MiMo's is grammatical and plausible, so it survives review and Stage 2 compresses it into a **wrong rule**. Never accept MiMo output on a code-dense course without the jargon audit.
 
 Tell from the `input/<course>/` folder name + any `*.description.md` / `manifest.json`. Both free tiers are rate-limited — a full course usually needs a paid tier. **Gemini free** caps at ~20 requests/day; **Groq Whisper-turbo free**'s binding cap is audio-seconds — **~8 h of audio/day** (28,800 ASD) + ~2 h/hour (7,200 ASH), 20 RPM, 2,000 RPD — so a long course spans several days (Motion Boost's 17 h ≈ 3 days). Full table + 429/`retry-after` headers: `knowledge/sources/groq-rate-limits.md`.
 
@@ -48,10 +56,12 @@ cd knowledge/projects/course-to-markdown
 .venv/bin/python downloaders/jstack.py --list --cookies input/cookies-jstack.txt
 .venv/bin/python downloaders/designboost.py --list
 .venv/bin/python downloaders/skool.py "https://www.skool.com/<group>/classroom/<course>" --dry-run
-PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course (Gemini, default)
+PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 1, full course (openrouter/MiMo, default)
 .venv/bin/python -u main.py input/jstack-projects -o output/jstack-projects --provider gemini --language Portuguese
-.venv/bin/python -u scripts/transcribe_batches.py input/jstack-lives output/jstack-lives --jobs 3 --provider gemini --language Portuguese
+.venv/bin/python -u scripts/transcribe_batches.py input/jstack-lives output/jstack-lives --jobs 3 --provider openrouter --language Portuguese
 .venv/bin/python main.py input/ --provider groq --language Portuguese   # Stage 1 via Groq Whisper (needs GROQ_API_KEY)
+.venv/bin/python scripts/jargon_audit.py output/<course>                # flag fluent term substitution (MiMo)
+.venv/bin/python scripts/jargon_audit.py output/<c>/<l>.transcript.txt --reference <other-provider>.transcript.txt
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
 .venv/bin/python -c "import course_to_markdown.pipeline"               # import smoke check
 .venv/bin/python -m unittest discover -s tests -v                      # downloader safety/contracts
@@ -72,6 +82,8 @@ Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file
 - Printing an authenticated/signed media URL (quiet yt-dlp is mandatory for signed streams).
 - Treating a 200 catalog response, folder presence, or one `done` entry as proof that a course is complete — reconcile curriculum, manifest, media, and transcript counts.
 - Running Stage 2 against the Gemini API instead of the Claude subscription.
+- **Accepting MiMo/OpenRouter output on a code-dense course without `scripts/jargon_audit.py`** — its substitutions are fluent and pass every other guard.
+- Assuming a model's advertised `input_modalities: [audio]` means its OpenRouter provider actually delivers the audio (`nemotron-omni:free` returns HTTP 200 + `stop` and silently ignores it).
 - Pointing `main.py` at a sub-folder without the paired `-o output/<batch>` root and flattening the output tree.
 - Starting `scripts/transcribe_batches.py` before the Stage 0 batch exits, or alongside an overlapping `main.py` worker.
 - Passing accented paths to `files.upload`, or removing the UTF-8 guard / `_ascii_name`.
