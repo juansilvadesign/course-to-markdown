@@ -13,12 +13,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 # --- Transcription provider (Stage 1) ---
-# "gemini" (default) uploads audio to gemini-2.5-flash via the Files API. "groq" POSTs
-# audio to Groq Whisper — a cheaper, purpose-built STT model with none of the LLM
-# failure modes (output-token ceiling, repetition loops). Stage 2 is unaffected.
-# (Zen/opencode was evaluated and rejected: text-only gateway, its Gemini is broken —
-# it cannot ingest audio. See MEMORY.md 2026-07-02.)
-DEFAULT_PROVIDER = os.getenv("COURSE_TO_MD_PROVIDER", "gemini")
+# "openrouter" (default since 2026-08-04) sends base64 audio to xiaomi/mimo-v2.5 via
+# chat/completions — ~$0.014/h of audio, and a 131k output ceiling (2x Gemini's) that
+# repaired a lesson Gemini could not transcribe at any chunk size. "gemini" uploads to
+# gemini-2.5-flash via the Files API. "groq" POSTs to Groq Whisper, a purpose-built STT.
+# Stage 2 is unaffected by all of this. (Zen/opencode was evaluated and rejected: text-only
+# gateway, its Gemini is broken — it cannot ingest audio. See MEMORY.md 2026-07-02.)
+#
+# ⚠️ The default trades JARGON FIDELITY for cost and loop-immunity. MiMo rewrote the
+# TypeScript type `unknown` as `any` in 7/7 occurrences on a real lesson — fluently, so it
+# passes every guard in this pipeline. For a code-dense course prefer `--provider gemini`,
+# and audit any MiMo output with `scripts/jargon_audit.py`. See MEMORY.md 2026-08-04.
+DEFAULT_PROVIDER = os.getenv("COURSE_TO_MD_PROVIDER", "openrouter")
 
 # --- Gemini ---
 DEFAULT_MODEL = os.getenv("COURSE_TO_MD_MODEL", "gemini-2.5-flash")
@@ -26,6 +32,9 @@ DEFAULT_THINKING_BUDGET = int(os.getenv("COURSE_TO_MD_THINKING_BUDGET", "0"))
 
 # --- Groq (Whisper STT) ---
 DEFAULT_GROQ_MODEL = os.getenv("COURSE_TO_MD_GROQ_MODEL", "whisper-large-v3-turbo")
+
+# --- OpenRouter (LLM transcription; audio is base64-inline, there is no STT route) ---
+DEFAULT_OPENROUTER_MODEL = os.getenv("COURSE_TO_MD_OPENROUTER_MODEL", "xiaomi/mimo-v2.5")
 
 # Per-request timeout (ms). Bounds a frozen connection (e.g. the machine sleeping
 # mid-run) so the call errors and the batch can continue/resume, instead of hanging
@@ -41,6 +50,16 @@ def get_api_key() -> str | None:
 def get_groq_api_key() -> str | None:
     """Groq key, used when --provider groq. Create one at https://console.groq.com/keys."""
     return os.getenv("GROQ_API_KEY")
+
+
+def get_openrouter_api_key() -> str | None:
+    """OpenRouter key, used when --provider openrouter. Create one at
+    https://openrouter.ai/keys.
+
+    Note: a valid key is not sufficient for audio. OpenRouter gates *every* audio request
+    behind a minimum account balance (~$0.50) and returns 402 below it — even for `:free`
+    models and even for a 15-second clip. Top up at https://openrouter.ai/credits."""
+    return os.getenv("OPENROUTER_API_KEY")
 
 
 # --- Paths ---

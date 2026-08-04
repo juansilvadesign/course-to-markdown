@@ -15,6 +15,7 @@ from downloaders._shared import (
     redact,
     safe_url,
 )
+from course_to_markdown import openrouter_client
 from course_to_markdown.gemini_client import (
     TruncatedResponseError,
     check_truncated,
@@ -309,6 +310,87 @@ class TranscriptionFanoutTests(unittest.TestCase):
             dirty_problems,
             ["1 partial download(s)", "1 failed manifest lesson(s)"],
         )
+
+
+class FakeRateLimitResponse:
+    def __init__(self, text: str = "", headers: dict | None = None):
+        self.text = text
+        self.headers = headers or {}
+
+
+class OpenRouterClientTests(unittest.TestCase):
+    """The OpenRouter path is an LLM transcribing, so it can fail in ways a real STT
+    endpoint cannot: succeed while dropping the audio, or succeed while truncated."""
+
+    def test_good_response_returns_transcript(self) -> None:
+        payload = {"choices": [{"finish_reason": "stop",
+                                "message": {"content": "  Vamos começar a aula.  "}}]}
+        self.assertEqual(
+            openrouter_client._extract_text(payload, "xiaomi/mimo-v2.5"),
+            "Vamos começar a aula.",
+        )
+
+    def test_http_200_with_no_choices_is_rejected(self) -> None:
+        """A provider can return 200 carrying an error body; indexing it kills the batch."""
+        payload = {"error": {"message": "upstream exploded"}}
+        with self.assertRaises(RuntimeError) as ctx:
+            openrouter_client._extract_text(payload, "xiaomi/mimo-v2.5")
+        self.assertIn("no choices", str(ctx.exception))
+
+    def test_truncated_generation_is_rejected(self) -> None:
+        payload = {"choices": [{"finish_reason": "length",
+                                "message": {"content": "partial transcript"}}]}
+        with self.assertRaises(RuntimeError) as ctx:
+            openrouter_client._extract_text(payload, "xiaomi/mimo-v2.5")
+        self.assertIn("finish_reason", str(ctx.exception))
+
+    def test_silently_dropped_audio_is_rejected(self) -> None:
+        """nvidia/nemotron-*-omni:free returns HTTP 200 + finish=stop and a polite refusal
+        when its provider discards the audio part. Density is the only signal."""
+        original = openrouter_client.audio.probe_duration
+        openrouter_client.audio.probe_duration = lambda _p: 600.0  # 10 min of audio
+        try:
+            with self.assertRaises(openrouter_client.AudioNotReceived):
+                openrouter_client._assert_audio_was_received(
+                    "Desculpe, não foi possível transcrever o áudio.",
+                    Path("chunk_000.mp3"), "nvidia/nemotron-omni:free")
+        finally:
+            openrouter_client.audio.probe_duration = original
+
+    def test_realistic_transcript_density_passes(self) -> None:
+        original = openrouter_client.audio.probe_duration
+        openrouter_client.audio.probe_duration = lambda _p: 600.0
+        try:
+            openrouter_client._assert_audio_was_received(
+                " ".join(["palavra"] * 1800),  # 180 wpm over 10 min
+                Path("chunk_000.mp3"), "xiaomi/mimo-v2.5")
+        finally:
+            openrouter_client.audio.probe_duration = original
+
+    def test_unknown_duration_skips_the_density_guard(self) -> None:
+        """No ffprobe reading -> no basis to judge; never fail a lesson on a missing probe."""
+        original = openrouter_client.audio.probe_duration
+        openrouter_client.audio.probe_duration = lambda _p: None
+        try:
+            openrouter_client._assert_audio_was_received(
+                "short", Path("chunk_000.mp3"), "xiaomi/mimo-v2.5")
+        finally:
+            openrouter_client.audio.probe_duration = original
+
+    def test_rate_limit_window_decides_stop_vs_retry(self) -> None:
+        stop = FakeRateLimitResponse("rate limit exceeded: requests per day")
+        retry = FakeRateLimitResponse("rate limit exceeded: requests per minute")
+        long_wait = FakeRateLimitResponse("", {"retry-after": "3600"})
+        short_wait = FakeRateLimitResponse("", {"retry-after": "12"})
+        self.assertTrue(openrouter_client._rate_limit_stops_run(stop))
+        self.assertFalse(openrouter_client._rate_limit_stops_run(retry))
+        self.assertTrue(openrouter_client._rate_limit_stops_run(long_wait))
+        self.assertFalse(openrouter_client._rate_limit_stops_run(short_wait))
+
+    def test_audio_format_defaults_to_mp3(self) -> None:
+        self.assertEqual(openrouter_client._audio_format(Path("a.mp3")), "mp3")
+        self.assertEqual(openrouter_client._audio_format(Path("a.wav")), "wav")
+        self.assertEqual(openrouter_client._audio_format(Path("a.m4a")), "mp3")
 
 
 if __name__ == "__main__":

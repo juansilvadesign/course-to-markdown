@@ -16,7 +16,8 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import audio, config, formatter, gemini_client, groq_client, transcribe
+from . import (audio, config, formatter, gemini_client, groq_client,
+               openrouter_client, transcribe)
 
 
 REPETITION_NGRAM_WORDS = 8
@@ -38,10 +39,13 @@ def max_repeated_ngram(text: str, size: int = REPETITION_NGRAM_WORDS) -> int:
 def _transcribe_one(client, path: Path, opts: Options) -> str:
     """Transcribe a single (already-normalized, already-chunked) audio file with the
     selected provider."""
+    if opts.provider == "openrouter":
+        return openrouter_client.transcribe_file(
+            path, opts.model, opts.language, config.get_openrouter_api_key())
     if opts.provider == "groq":
         return groq_client.transcribe_file(
             path, opts.model, opts.language, config.get_groq_api_key())
-    # Default: Gemini via the Files API (upload -> generate -> delete).
+    # Gemini via the Files API (upload -> generate -> delete).
     uploaded = gemini_client.upload_and_wait(client, path)
     try:
         return transcribe.transcribe(
@@ -88,7 +92,7 @@ def _ascii_name(stem: str) -> str:
 @dataclass
 class Options:
     output_dir: Path
-    provider: str = config.DEFAULT_PROVIDER  # "gemini" (default) | "groq"
+    provider: str = config.DEFAULT_PROVIDER  # "openrouter" (default) | "gemini" | "groq"
     model: str = config.DEFAULT_MODEL
     thinking_budget: int | None = config.DEFAULT_THINKING_BUDGET
     language: str | None = None
@@ -182,8 +186,9 @@ def process_file(client, src: Path, rel: Path, opts: Options) -> Result:
         md_path.write_text(md + "\n", encoding="utf-8")
         return Result(src, "done", transcript_path=txt_path, markdown_path=md_path)
 
-    except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted):
-        raise  # propagate: the whole batch must stop (every remaining call would 429)
+    except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted,
+            openrouter_client.DailyQuotaExhausted):
+        raise  # propagate: the whole batch must stop (every remaining call would 429/402)
     except Exception as e:  # noqa: BLE001 - keep the batch alive
         return Result(src, "error", error=str(e))
     finally:
@@ -214,11 +219,16 @@ def run(target: Path, opts: Options) -> list[Result]:
         print(f"No media files found at: {target}", file=sys.stderr)
         return []
 
-    # Provider setup (dry-run never touches any API). Groq is stateless per request, so
-    # it needs no client object — just a validated key up front.
+    # Provider setup (dry-run never touches any API). Groq and OpenRouter are stateless
+    # per request, so they need no client object — just a validated key up front.
     client = None
     if not opts.dry_run:
-        if opts.provider == "groq":
+        if opts.provider == "openrouter":
+            if not config.get_openrouter_api_key():
+                raise RuntimeError(
+                    "Provider 'openrouter' selected but OPENROUTER_API_KEY is not set. "
+                    "Add it to .env (see .env.example) or the environment.")
+        elif opts.provider == "groq":
             if not config.get_groq_api_key():
                 raise RuntimeError(
                     "Provider 'groq' selected but GROQ_API_KEY is not set. "
@@ -232,7 +242,8 @@ def run(target: Path, opts: Options) -> list[Result]:
         print(f"[{i}/{len(inputs)}] {rel}")
         try:
             res = process_file(client, src, rel, opts)
-        except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted):
+        except (gemini_client.DailyQuotaExhausted, groq_client.DailyQuotaExhausted,
+                openrouter_client.DailyQuotaExhausted):
             done = sum(1 for r in results if r.status == "done")
             print(f"  [stop] {opts.provider}: rate/quota limit won't clear this run — stopping "
                   f"after {done} new. Re-run later to resume (finished files are skipped).",

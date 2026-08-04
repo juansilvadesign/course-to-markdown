@@ -24,6 +24,7 @@ SCRIPT_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(SCRIPT_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_PROJECT_ROOT))
 
+from course_to_markdown import config
 from course_to_markdown.config import MEDIA_EXTS, PROJECT_ROOT
 
 
@@ -210,8 +211,8 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--jobs", type=int, default=3, help="Concurrent courses (default: 3).")
     parser.add_argument(
         "--provider",
-        choices=("gemini", "groq"),
-        default="gemini",
+        choices=("openrouter", "gemini", "groq"),
+        default=config.DEFAULT_PROVIDER,
     )
     parser.add_argument("--model")
     parser.add_argument("--language", default="Portuguese")

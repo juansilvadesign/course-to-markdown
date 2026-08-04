@@ -34,12 +34,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Media file or folder of media files (default: ./input).")
     p.add_argument("-o", "--output", default=str(config.DEFAULT_OUTPUT_DIR),
                    help="Output directory for .md and .transcript.txt (default: ./output).")
-    p.add_argument("--provider", choices=["gemini", "groq"], default=config.DEFAULT_PROVIDER,
+    p.add_argument("--provider", choices=["openrouter", "gemini", "groq"],
+                   default=config.DEFAULT_PROVIDER,
                    help=f"Stage-1 transcription backend (default: {config.DEFAULT_PROVIDER}). "
+                        "'openrouter' = base64 audio -> xiaomi/mimo-v2.5 (cheapest, 131k output "
+                        "ceiling; needs OPENROUTER_API_KEY + a funded balance); "
                         "'gemini' = audio->text via the gemini-2.5-flash Files API; "
-                        "'groq' = Groq Whisper (cheaper, faster STT). 'groq' needs GROQ_API_KEY.")
+                        "'groq' = Groq Whisper (cheaper, faster STT, needs GROQ_API_KEY). "
+                        "NOTE: for code-dense courses prefer 'gemini' — openrouter/MiMo "
+                        "mis-renders English technical terms fluently (unknown -> any).")
     p.add_argument("--model", default=None,
                    help="Transcription model. Default depends on --provider: "
+                        f"{config.DEFAULT_OPENROUTER_MODEL} (openrouter) / "
                         f"{config.DEFAULT_MODEL} (gemini) / {config.DEFAULT_GROQ_MODEL} (groq).")
     p.add_argument("--language", default=None,
                    help="Optional language hint, e.g. 'Portuguese' or 'English' (default: auto / preserve).")
@@ -67,15 +73,19 @@ def main(argv=None) -> int:
         print(f"Input not found: {target}", file=sys.stderr)
         return 2
 
-    # --gemini-format is a Gemini-only legacy path (text->note); Groq is STT-only.
+    # --gemini-format is a Gemini-only legacy path (text->note); the others are transcribe-only.
     if args.gemini_format and args.provider != "gemini":
         print("Error: --gemini-format is a Gemini-only legacy path; run it with "
               "--provider gemini.", file=sys.stderr)
         return 2
 
     # Per-provider default model (kept out of argparse so the default tracks --provider).
-    model = args.model or (
-        config.DEFAULT_GROQ_MODEL if args.provider == "groq" else config.DEFAULT_MODEL)
+    _PROVIDER_DEFAULT_MODEL = {
+        "openrouter": config.DEFAULT_OPENROUTER_MODEL,
+        "groq": config.DEFAULT_GROQ_MODEL,
+        "gemini": config.DEFAULT_MODEL,
+    }
+    model = args.model or _PROVIDER_DEFAULT_MODEL[args.provider]
 
     opts = Options(
         output_dir=Path(args.output).expanduser(),
