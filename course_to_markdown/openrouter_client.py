@@ -112,9 +112,10 @@ def transcribe_file(audio_path: Path, model: str, language: str | None, api_key:
                     *, max_attempts: int = 4, max_sleep: float = 60.0) -> str:
     """Transcribe one (already-normalized, already-chunked) audio file via OpenRouter.
 
-    Retries transient 429/5xx and network errors (honoring ``Retry-After``); raises
-    RuntimeError on persistent or non-retryable failure so the batch records a per-file
-    error and keeps going (a re-run skips transcripts that already exist on disk).
+    Retries transient 429/5xx, network errors (honoring ``Retry-After``), and the
+    silent audio-drop described in ``_assert_audio_was_received``; raises RuntimeError on
+    persistent or non-retryable failure so the batch records a per-file error and keeps
+    going (a re-run skips transcripts that already exist on disk).
     """
     if not api_key:
         raise RuntimeError(
@@ -136,6 +137,11 @@ def transcribe_file(audio_path: Path, model: str, language: str | None, api_key:
             ],
         }],
         "temperature": 0,
+        "max_tokens": config.OPENROUTER_MAX_OUTPUT_TOKENS,
+        # Transcription needs no chain-of-thought, and reasoning tokens are billed whether
+        # or not any transcript comes back. Leaving this on produced finish_reason="length"
+        # with zero content on 22 lessons. `exclude` would still generate (and bill) it.
+        "reasoning": {"enabled": False},
         # Mistral/Voxtral rejects temperature=0 unless top_p is explicitly 1
         # ("top_p must be 1 when using greedy sampling", code 3054). top_p=1 is the
         # neutral default everywhere else, so this is safe to send to every model.
@@ -154,7 +160,22 @@ def transcribe_file(audio_path: Path, model: str, language: str | None, api_key:
             resp = httpx.post(OPENROUTER_CHAT_URL, json=body, headers=headers, timeout=timeout)
             if resp.status_code == 200:
                 text = _extract_text(resp.json(), model)
-                _assert_audio_was_received(text, audio_path, model)
+                try:
+                    _assert_audio_was_received(text, audio_path, model)
+                except AudioNotReceived:
+                    # Measured at ~7% of MiMo requests on the jstack-lives batch: HTTP 200,
+                    # finish_reason "stop", and a fluent "I don't see an audio file attached".
+                    # It is a per-request delivery fault, not a property of the file, so the
+                    # identical request usually succeeds on a retry. Without this, every batch
+                    # leaves a residue that needs a whole extra pass to clear.
+                    attempt += 1
+                    if attempt >= max_attempts:
+                        raise
+                    sleep_s = min(2.0 * attempt, max_sleep)
+                    print(f"  ! openrouter: provider dropped the audio; retry "
+                          f"{attempt}/{max_attempts} in {sleep_s:.0f}s", file=sys.stderr)
+                    time.sleep(sleep_s)
+                    continue
                 return text
             # An exhausted (or never-funded) balance won't clear this run — stop the batch
             # cleanly rather than erroring every remaining file in turn.

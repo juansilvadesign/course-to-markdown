@@ -62,11 +62,19 @@ def _transcribe_audio(client, audio_path: Path, work_dir: Path, opts: Options) -
     each transcribed independently, then concatenated. Chunking benefits both providers
     (Gemini's failure modes; Groq's per-file size limit).
     """
+    threshold, chunk_length = config.AUDIO_CHUNK_THRESHOLD_SEC, config.AUDIO_CHUNK_LENGTH_SEC
+    if opts.provider == "openrouter":
+        # A hard provider cap, not a quality heuristic: the threshold has to drop too, or
+        # every lesson between the cap and the default 15-min threshold is sent whole and
+        # rejected with a 400 instead of being chunked.
+        threshold = min(threshold, config.OPENROUTER_MAX_AUDIO_SEC)
+        chunk_length = min(chunk_length, config.OPENROUTER_MAX_AUDIO_SEC)
+
     duration = audio.probe_duration(audio_path)
-    if duration is None or duration <= config.AUDIO_CHUNK_THRESHOLD_SEC:
+    if duration is None or duration <= threshold:
         return _transcribe_one(client, audio_path, opts)
 
-    chunks = audio.split_audio(audio_path, config.AUDIO_CHUNK_LENGTH_SEC, work_dir / "chunks")
+    chunks = audio.split_audio(audio_path, chunk_length, work_dir / "chunks")
     if not chunks:
         return _transcribe_one(client, audio_path, opts)
     print(f"      (long: {duration/60:.0f} min -> {len(chunks)} chunks)")

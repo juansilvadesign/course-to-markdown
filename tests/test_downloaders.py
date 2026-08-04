@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import tempfile
 import unittest
@@ -318,6 +319,45 @@ class FakeRateLimitResponse:
         self.headers = headers or {}
 
 
+class FakeTranscriptResponse:
+    """A well-formed HTTP 200 chat completion carrying `content`."""
+
+    status_code = 200
+    text = ""
+    headers: dict = {}
+
+    def __init__(self, content: str):
+        self._content = content
+
+    def json(self) -> dict:
+        return {"choices": [{"finish_reason": "stop",
+                             "message": {"content": self._content}}]}
+
+
+@contextlib.contextmanager
+def _patched(*, post, duration: float):
+    """Drive `transcribe_file` against a fake transport and a fake ffprobe reading.
+
+    Yields a real temp chunk because the client reads the audio bytes off disk. Sleep is
+    stubbed so retry tests don't actually wait out the backoff.
+    """
+    saved = (openrouter_client.httpx.post,
+             openrouter_client.audio.probe_duration,
+             openrouter_client.time.sleep)
+    openrouter_client.httpx.post = post
+    openrouter_client.audio.probe_duration = lambda _p: duration
+    openrouter_client.time.sleep = lambda _s: None
+    try:
+        with tempfile.TemporaryDirectory() as temporary:
+            chunk = Path(temporary) / "chunk_000.mp3"
+            chunk.write_bytes(b"fake audio bytes")
+            yield chunk
+    finally:
+        (openrouter_client.httpx.post,
+         openrouter_client.audio.probe_duration,
+         openrouter_client.time.sleep) = saved
+
+
 class OpenRouterClientTests(unittest.TestCase):
     """The OpenRouter path is an LLM transcribing, so it can fail in ways a real STT
     endpoint cannot: succeed while dropping the audio, or succeed while truncated."""
@@ -386,6 +426,40 @@ class OpenRouterClientTests(unittest.TestCase):
         self.assertFalse(openrouter_client._rate_limit_stops_run(retry))
         self.assertTrue(openrouter_client._rate_limit_stops_run(long_wait))
         self.assertFalse(openrouter_client._rate_limit_stops_run(short_wait))
+
+    def test_dropped_audio_is_retried_and_recovers(self) -> None:
+        """~7% of MiMo requests drop the audio. It is a per-request delivery fault, so the
+        identical request usually succeeds on a retry -- retrying beats leaving a residue."""
+        good = " ".join(["palavra"] * 1800)  # 180 wpm over 10 min
+        replies = [
+            FakeTranscriptResponse("I don't see an audio file attached to your message."),
+            FakeTranscriptResponse(good),
+        ]
+        calls: list[int] = []
+
+        def fake_post(*_args, **_kwargs):
+            calls.append(1)
+            return replies.pop(0)
+
+        with _patched(post=fake_post, duration=600.0) as chunk:
+            text = openrouter_client.transcribe_file(
+                chunk, "xiaomi/mimo-v2.5", "Portuguese", "key")
+
+        self.assertEqual(text, good)
+        self.assertEqual(len(calls), 2, "should have retried exactly once")
+
+    def test_persistently_dropped_audio_still_fails(self) -> None:
+        """Retrying must not turn a real failure into a silent pass -- a file that never
+        transcribes has to surface as an error, not as an apology written to disk."""
+        drop = "I don't see an audio file attached to your message."
+
+        def fake_post(*_args, **_kwargs):
+            return FakeTranscriptResponse(drop)
+
+        with _patched(post=fake_post, duration=600.0) as chunk:
+            with self.assertRaises(openrouter_client.AudioNotReceived):
+                openrouter_client.transcribe_file(
+                    chunk, "xiaomi/mimo-v2.5", "Portuguese", "key", max_attempts=3)
 
     def test_audio_format_defaults_to_mp3(self) -> None:
         self.assertEqual(openrouter_client._audio_format(Path("a.mp3")), "mp3")

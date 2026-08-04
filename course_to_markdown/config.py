@@ -99,6 +99,18 @@ AUDIO_BITRATE = "64k"
 AUDIO_CHUNK_THRESHOLD_SEC = int(os.getenv("COURSE_TO_MD_CHUNK_THRESHOLD_SEC", "900"))  # split if > 15 min
 AUDIO_CHUNK_LENGTH_SEC = int(os.getenv("COURSE_TO_MD_CHUNK_LENGTH_SEC", "600"))        # into ~10-min chunks
 
+# OpenRouter's MiMo providers hard-reject audio longer than 600s with a 400
+# ("Audio exceeds maximum allowed duration of 600s"). The THRESHOLD matters as much as the
+# chunk length: at the 900s default, every 10-15 min lesson is under the threshold, so it
+# is sent whole and fails outright. Both must sit below the cap, with margin for the
+# frame-boundary overshoot in `-c copy` segmenting.
+OPENROUTER_MAX_AUDIO_SEC = int(os.getenv("COURSE_TO_MD_OPENROUTER_MAX_AUDIO_SEC", "540"))
+
+# MiMo is a reasoning model, and transcription needs no chain-of-thought. With no explicit
+# budget it can spend the provider's default entirely on reasoning and return
+# finish_reason="length" carrying zero content -- billed in full (22x on jstack-lives).
+OPENROUTER_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_OPENROUTER_MAX_TOKENS", "16000"))
+
 # --- Generation limits ---
 TRANSCRIBE_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_TRANSCRIBE_MAX_TOKENS", "65536"))
 FORMAT_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_FORMAT_MAX_TOKENS", "16384"))
