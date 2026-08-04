@@ -65,6 +65,16 @@ class AudioNotReceived(RuntimeError):
     a confident-looking stub over a valid lesson."""
 
 
+class TruncatedGeneration(RuntimeError):
+    """The generation stopped for any reason other than a natural end.
+
+    In practice this is the repetition loop: the model falls into an 8-word cycle (seen
+    repeated 7,600x) and runs to the output ceiling. Measured at roughly 1-in-6 on
+    *byte-identical* requests at temperature 0, so it is stochastic, not a property of the
+    audio -- retrying the same request is the fix, and shrinking the chunk is not
+    (300s chunks looped exactly as 540s ones did)."""
+
+
 def _audio_format(path: Path) -> str:
     return _AUDIO_FORMATS.get(path.suffix.lower(), "mp3")
 
@@ -102,7 +112,7 @@ def _extract_text(payload: dict, model: str) -> str:
     # Mirrors the Gemini guard: a truncated generation is never a valid transcript. The
     # whole point of MiMo's 131k ceiling is that this should not fire.
     if finish not in ("stop", "STOP", None, ""):
-        raise RuntimeError(
+        raise TruncatedGeneration(
             f"OpenRouter finish_reason={finish!r} ({model}) — truncated or filtered "
             f"generation, not a complete transcript ({len(text.split())} words)")
     return text
@@ -159,20 +169,23 @@ def transcribe_file(audio_path: Path, model: str, language: str | None, api_key:
         try:
             resp = httpx.post(OPENROUTER_CHAT_URL, json=body, headers=headers, timeout=timeout)
             if resp.status_code == 200:
-                text = _extract_text(resp.json(), model)
                 try:
+                    text = _extract_text(resp.json(), model)
                     _assert_audio_was_received(text, audio_path, model)
-                except AudioNotReceived:
-                    # Measured at ~7% of MiMo requests on the jstack-lives batch: HTTP 200,
-                    # finish_reason "stop", and a fluent "I don't see an audio file attached".
-                    # It is a per-request delivery fault, not a property of the file, so the
-                    # identical request usually succeeds on a retry. Without this, every batch
-                    # leaves a residue that needs a whole extra pass to clear.
+                except (AudioNotReceived, TruncatedGeneration) as flaw:
+                    # Two distinct HTTP-200 failures, both *stochastic per request* rather
+                    # than properties of the file, and both measured on jstack-lives:
+                    #   ~7%  the provider silently drops the audio and apologises fluently
+                    #   ~17% the model falls into a repetition loop and runs to the ceiling
+                    # Byte-identical requests at temperature 0 succeed on retry, so retrying
+                    # is the whole fix. Without it each batch leaves residue needing a pass.
                     attempt += 1
                     if attempt >= max_attempts:
                         raise
                     sleep_s = min(2.0 * attempt, max_sleep)
-                    print(f"  ! openrouter: provider dropped the audio; retry "
+                    reason = ("provider dropped the audio"
+                              if isinstance(flaw, AudioNotReceived) else "generation looped")
+                    print(f"  ! openrouter: {reason}; retry "
                           f"{attempt}/{max_attempts} in {sleep_s:.0f}s", file=sys.stderr)
                     time.sleep(sleep_s)
                     continue

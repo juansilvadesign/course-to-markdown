@@ -448,6 +448,27 @@ class OpenRouterClientTests(unittest.TestCase):
         self.assertEqual(text, good)
         self.assertEqual(len(calls), 2, "should have retried exactly once")
 
+    def test_repetition_loop_is_retried_and_recovers(self) -> None:
+        """MiMo loops on ~1-in-6 byte-identical requests at temperature 0 and runs to the
+        output ceiling. It is stochastic, so the retry is the fix -- a smaller chunk is not."""
+        good = " ".join(["palavra"] * 1800)
+        looped = FakeTranscriptResponse(" ".join(["um dois tres quatro"] * 2000))
+        looped.json = lambda: {"choices": [{"finish_reason": "length",
+                                            "message": {"content": "loop " * 8000}}]}
+        replies = [looped, FakeTranscriptResponse(good)]
+        calls: list[int] = []
+
+        def fake_post(*_args, **_kwargs):
+            calls.append(1)
+            return replies.pop(0)
+
+        with _patched(post=fake_post, duration=600.0) as chunk:
+            text = openrouter_client.transcribe_file(
+                chunk, "xiaomi/mimo-v2.5", "Portuguese", "key")
+
+        self.assertEqual(text, good)
+        self.assertEqual(len(calls), 2, "a looped generation should be retried once")
+
     def test_persistently_dropped_audio_still_fails(self) -> None:
         """Retrying must not turn a real failure into a silent pass -- a file that never
         transcribes has to surface as an error, not as an apology written to disk."""
