@@ -57,22 +57,18 @@ The 2026-07-28 checkpoint paused Gemini and listed a three-minute Fincheck repai
 
 ## ▶ Next session — start here
 
-**JStack Stage 0/1 is finished — there is no long job left to resume.** The next real decisions:
+**Stage 0/1 is finished, committed, and pushed (`main` 0 ahead / 0 behind).** The live problem is Phase 5: 102 packs sit in staging, but **19 were written by a forbidden Gemini-API script that read only ~37% of each course**, and the coverage claim that blessed them was a counting artifact. In order:
 
-1. **Run the jargon audit before any of this reaches Stage 2.** ⚠️ **Still unrun on 1,084 lives transcripts**, which are MiMo output on AWS/SQL/React material — precisely the code-dense case where MiMo's substitutions are *fluent* and pass every guard the pipeline has. The 9 Gemini lessons in 3.5 are a ready-made `--reference` baseline drawn from those same courses:
+1. **Delete `scripts/compile_lives_stage2.py` — do not commit it.** It is a Stage-2-over-the-Gemini-API path plus three truncation defects (see 5.2). Committing it would legitimize exactly what the hard rules forbid.
+2. **Recompile the 19 script-written packs through `course-module-compiler`**, batches of ≤4 (the session ceiling still applies). The agent compiles per module instead of slicing one 60k-char prompt — that is what actually fixes coverage.
+3. **Re-reconcile 5.3 content-based**, then backfill the missing `## How to apply` on the 14 today-dated packs that lack it.
+4. **Decide the 3 term-loss lessons** (5.5) — re-transcribe on Gemini, or accept the omission and record provenance.
+5. **Then** 5.4 review + manual promotion. ⛔ **Promote nothing into `knowledge/` before that.**
+6. **Answer the two open acquisition-scope questions** below before touching DesignBoost or Skool.
 
-   ```bash
-   .venv/bin/python scripts/jargon_audit.py output/jstack-lives
-   .venv/bin/python scripts/jargon_audit.py <mimo>.transcript.txt --reference <gemini>.transcript.txt
-   ```
+The jargon audit that used to head this list has now been **run** — result and remaining decision in 5.5.
 
-   ⛔ The bare orphan-pair heuristic is base-rate noise at corpus scale (23.5% MiMo vs 24.6% Gemini — indistinguishable). **Only `--reference` discriminates.**
-
-2. **Commit the working tree** (4.5) — the backend pin, the wpm fix, the tests, these docs.
-3. **Decide Phase 5 granularity** for projects/lives before compiling anything (5.1).
-4. **Answer the two open acquisition-scope questions** below before touching DesignBoost or Skool.
-
-Standing rules that outlived the checkpoint: media and transcripts are the source of truth, never terminal history; never launch an aggregate worker over live per-course workers; always pair `-o` roots explicitly.
+Standing rules that outlived the checkpoint: media and transcripts are the source of truth, never terminal history; never launch an aggregate worker over live per-course workers; always pair `-o` roots explicitly. **New (2026-08-05):** a pack's *existence* proves a file was written — never that the course was read.
 
 ---
 
@@ -130,10 +126,18 @@ Standing rules that outlived the checkpoint: media and transcripts are the sourc
 
 > Not required to finish the current Stage 0/1 request. Start only after Phase 3 count reconciliation.
 
-- [ ] **5.1 Choose reusable-unit granularity** for JStack projects/lives (course, discipline, or coherent cluster — not reflexively one pack per source module).
-- [ ] **5.2 Compile in batches of no more than four agents** to avoid the known session ceiling.
-- [ ] **5.3 Reconcile lesson coverage** — zero orphan and zero double-covered transcripts.
-- [ ] **5.4 Review, then promote manually** if the packs add net-new knowledge.
+- [x] **5.1 Choose reusable-unit granularity — ✅ DONE 2026-08-05.** Course/project/discipline granularity for JStack projects (6 packs) and JStack lives (74 packs across 69 courses). **This decision stands** — only the execution below was defective.
+- [ ] **5.2 Compile in batches of no more than four agents — 🔴 RE-OPENED 2026-08-05.** 102 `.pack.md` files exist in staging, but **19 of them were written by `scripts/compile_lives_stage2.py`, which calls `gemini-2.5-flash` over the Gemini API** — the one thing Stage 2 must never do. The earlier "subagents and batch script" wording hid that the batch-script half *is* the forbidden path. Those 19 must be recompiled through `course-module-compiler`. Its three defects, all in its own config:
+    - ⛔ **`[:60000]` prompt slice (plus a 15k-per-lesson cap) — the compiler never read most of the course.** All 19 courses overflowed the window: coverage **22–66%, median 37%**, across **272 lessons**. Worst: `login-social-federated-com-aws-cognito`, 25 lessons → **22%**. This is the defect that matters most, because nothing downstream announces it.
+    - ⛔ **`max_output_tokens=3000` with thinking left ON** — the budget goes to reasoning, so **6 packs are truncated mid-sentence** (358–725 B against an 8.9 KB median; 5 of the 6 are in this cohort). The hard rules already say "thinking off", and the pipeline's own `transcribe.py` honours it; this script did not.
+    - ⛔ **`import datetime` present but unused → the model invented the date.** All 19 carry `compiled: 2024-07-30`, two years in the past — the same hallucination the 2026-06 fix cured on the transcription side.
+    - Across all 102 packs: **28 lack the required `## How to apply`** (14 in this cohort, 14 dated today) and 3 carry quoted-date drift (`compiled: "2026-08-05"`).
+- [ ] **5.3 Reconcile lesson coverage — 🔴 RE-OPENED 2026-08-05.** The previous "100% of 1,668 transcripts, zero orphans" was a **counting artifact**: it asserted that every transcript sits under a course that *has* a pack, never that its content reached the compiler. Under the 60k slice it demonstrably did not. Re-reconciliation must be **content-based** — assert what the compiler actually ingested, not folder membership.
+- [ ] **5.4 Review, then promote manually** if the packs add net-new knowledge (human promotion step). **Blocked on 5.2 + 5.3.**
+- [ ] **5.5 Jargon audit — ✅ RUN 2026-08-05; remediation still open.** `--reference` against a purpose-built 19-lesson Gemini baseline (`output/jstack-lives-gemini-ref/`, swept 00:16): **3 of 19 pairs show real term loss.** One is the exact documented failure — `gerenciamento-de-estados-com-zustand/1000-conteúdo/06-configurando-o-zustand-com-o-typescript`, where Gemini has *"ele tá como **unknown**, porque eu não passei nenhum generic"* and MiMo has *"ele tá como **any**"* (`unknown` ×8 → ×0). The other two lose `callback` ×7 and `context` ×3.
+    - ✅ **It did not reach the library.** That pack propagates no wrong `any`/`unknown` rule — neither term survived compression, so this is an **omission, not an inversion**. Still decide whether the 3 lessons get re-transcribed on `--provider gemini` before their packs are rebuilt.
+    - ⛔ **Bare mode confirmed useless at scale:** 252 of 1,084 flagged (23.2%) — the documented base-rate noise. Only `--reference` discriminates.
+    - ⚠️ **Tool wart:** the heuristics run *even in* `--reference` mode (`jargon_audit.py:138-139`), so a tree-vs-tree invocation buries the 19 real diffs under 252 noise flags and looks like it found nothing. Filter on `TERM LOST`/`down N%`, or make `--reference` suppress the heuristics.
 
 ---
 
