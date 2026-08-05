@@ -15,23 +15,27 @@
 - **Open scope:** convenience features, attachment capture, bulk Skool discovery, and Stage 2 compilation may move to [`ROADMAP.md`](ROADMAP.md) to protect the fixed outcome.
 - **Replan trigger:** a platform response shape changes, a session expires, DRM is encountered, or provider quota prevents a clean resumable run.
 
-## ⏸ Checkpoint — 2026-07-28
+## ✅ Checkpoint — 2026-08-04: JStack Stage 0/1 COMPLETE
 
-- **Gemini is deliberately paused at the user's request.** All `main.py` workers were interrupted and a process check confirmed none remain. Do not restart Stage 1 until the user explicitly resumes it.
-- **JStack Stage 0 remains active and resumable.** Snapshot while catalog item 20/69 (`paginacao-offset-vs-cursor-based-e-valores-pre-computados`) was downloading: 467 live media files, 21 live manifests, zero failed statuses, and one downloader-owned active partial.
-- ~~**Projects are count-complete but not quality-complete**~~ → **✅ RESOLVED 2026-08-04, see 3.3.** Projects are now quality-complete (182/182, scan CLEAN). The Fincheck lesson was repaired via OpenRouter/MiMo instead of the Gemini command below, because an A/B proved Gemini is the model that breaks on it — `flash-lite` shares the same 65,535 ceiling and would not have fixed it.
-- **Lives snapshot:** 325 non-empty transcripts. Newly completed courses include React Router 40/40, Serverless Framework 36/36, DynamoDB/Algolia 21/21, Auth.js credentials 12/12, Auth.js social/RBAC 22/22, AWS SES 11/11, Cognito RBAC 19/19, and federated Cognito login 25/25. Interrupted resumable courses include Multi-tenant 6/28 and Fastify 22/26.
-- **Quality guards now reject both failure modes:** a non-`STOP` Gemini finish reason and any exact 8-word sequence repeated 50+ times. The offline suite passes 13/13.
-- **First Gemini action after an explicit resume:** replace the flagged Fincheck lesson with the three-minute command below, run `/tmp/course_to_md_quality_scan.py input/jstack-projects output/jstack-projects`, then run the project fan-out reconciliation with `--jobs 1`.
+**The whole JStack corpus is transcribed and reconciled: 1,668/1,668 lessons.**
 
-  ```bash
-  COURSE_TO_MD_CHUNK_THRESHOLD_SEC=180 \
-  COURSE_TO_MD_CHUNK_LENGTH_SEC=180 \
-  .venv/bin/python -u main.py \
-    input/jstack-projects/fincheck/02-front-end/03-dashboard/04-implementando-dropdown-de-sair-da-conta.m4a \
-    -o output/jstack-projects/fincheck/02-front-end/03-dashboard \
-    --provider gemini --language Portuguese --retranscribe
-  ```
+| batch | transcripts / media |
+|---|---|
+| `jstack-lives` | **1084 / 1084** — 69/69 courses, `reconcile.py` reports 0 needing attention |
+| `jstack-projects` | 182 / 182 |
+| `formacao-full-stack` | 372 / 372 |
+| `formacao-typescript` | 30 / 30 |
+
+Zero `.part`, zero `.ytdl`, zero zero-byte files anywhere in `input/`/`output/`.
+
+- **The Gemini pause was LIFTED on 2026-08-04, with explicit user approval, for a bounded 9-lesson sweep** — see Phase 3.5. It is no longer a standing block, but the default provider remains `openrouter`; do not read this as a general licence to run Gemini batches.
+- **Provider provenance is now mixed — record it, it matters for Stage 2.** The corpus is MiMo/OpenRouter except: 1 Fincheck lesson (see 3.3) and the **9 lives lessons** listed in 3.5. If a Stage-2 pack ever shows a fidelity discrepancy, check provenance before blaming the compiler.
+- **46 numbering gaps remain advisory across the lives tree.** Only a live catalog session can settle whether those are real lessons or JStack's own skipped numbering; `reconcile.py` flags but never fails on them.
+
+### Superseded (kept for the reasoning, not the instruction)
+
+The 2026-07-28 checkpoint paused Gemini and listed a three-minute Fincheck repair command as the first action after resume. Both are dead: Fincheck was repaired via OpenRouter/MiMo on 2026-08-04 (3.3), and the pause was lifted for the sweep above.
+- **Quality guards reject three failure modes:** a non-`STOP` finish reason, an exact 8-word sequence repeated 50+ times, and a words-per-minute floor that catches the silent audio-drop. The offline suite passes **26/26**.
 
 ---
 
@@ -53,33 +57,22 @@
 
 ## ▶ Next session — start here
 
-1. **Check disk state before starting another long job.** Media and transcripts are the source of truth; terminal history is not. Gemini is paused by user request; do not restart it without an explicit go-ahead.
-2. **Resume JStack lives if incomplete:**
+**JStack Stage 0/1 is finished — there is no long job left to resume.** The next real decisions:
+
+1. **Run the jargon audit before any of this reaches Stage 2.** ⚠️ **Still unrun on 1,084 lives transcripts**, which are MiMo output on AWS/SQL/React material — precisely the code-dense case where MiMo's substitutions are *fluent* and pass every guard the pipeline has. The 9 Gemini lessons in 3.5 are a ready-made `--reference` baseline drawn from those same courses:
 
    ```bash
-   .venv/bin/python -u downloaders/jstack.py --all lives \
-     --cookies input/cookies-jstack.txt --resume
+   .venv/bin/python scripts/jargon_audit.py output/jstack-lives
+   .venv/bin/python scripts/jargon_audit.py <mimo>.transcript.txt --reference <gemini>.transcript.txt
    ```
 
-3. **Resume JStack transcription with explicit paired roots.** One aggregate command is safe after a restart; while per-project/per-course workers are live, never launch an overlapping aggregate worker:
+   ⛔ The bare orphan-pair heuristic is base-rate noise at corpus scale (23.5% MiMo vs 24.6% Gemini — indistinguishable). **Only `--reference` discriminates.**
 
-   ```bash
-   .venv/bin/python -u main.py input/jstack-projects \
-     -o output/jstack-projects --provider gemini --language Portuguese
-   .venv/bin/python -u main.py input/jstack-lives \
-     -o output/jstack-lives --provider gemini --language Portuguese
-   ```
+2. **Commit the working tree** (4.5) — the backend pin, the wpm fix, the tests, these docs.
+3. **Decide Phase 5 granularity** for projects/lives before compiling anything (5.1).
+4. **Answer the two open acquisition-scope questions** below before touching DesignBoost or Skool.
 
-   After the entire Stage 0 batch has exited cleanly, prefer bounded course fan-out for the large lives tree:
-
-   ```bash
-   .venv/bin/python -u scripts/transcribe_batches.py \
-     input/jstack-lives output/jstack-lives \
-     --jobs 3 --provider gemini --language Portuguese
-   ```
-
-4. **Reconcile media, manifest, and transcript counts.** Re-run the resumable command for any failed/missing lessons; do not infer completeness from folder presence.
-5. **Update the live counts and checkboxes below.** Never leave an “in progress” statement without the command needed to resume it.
+Standing rules that outlived the checkpoint: media and transcripts are the source of truth, never terminal history; never launch an aggregate worker over live per-course workers; always pair `-o` roots explicitly.
 
 ---
 
@@ -107,19 +100,31 @@
 - [x] **3.1 Trainings media + transcripts** — both formations complete.
 - [x] **3.2 Projects media** — Fincheck, Foodiary, and WaiterApp complete.
 - [x] **3.3 Projects transcripts — ✅ DONE 2026-08-04.** 182 media / 182 transcripts, quality scan **0 flags (CLEAN)**: no repetition loops, no empty/orphan/missing transcripts, no `.part` leftovers, no zero-byte media. The Fincheck lesson `02-front-end/03-dashboard/04-implementando-dropdown-de-sair-da-conta` was repaired **with MiMo-V2.5 via OpenRouter, not Gemini** (Stage 1 stays paused): 11,928 words / 8-gram ×1,051 → **10,444 words / ×4**, diacritics intact. ⚠️ This is the corpus's **only non-Gemini transcript**. Broken original backed up in the session scratchpad; scan script rebuilt at `scratchpad/quality_scan.py` (the `/tmp` original was cleared).
-- [ ] **3.4 Lives media** — active at item 20/69 in the checkpoint snapshot; complete all accessible catalog items with `--resume`.
-- [ ] **3.5 Lives transcripts** — paused by user request at 325 non-empty transcripts; after explicit resume and a clean Stage 0 exit, run bounded course fan-out (`scripts/transcribe_batches.py --jobs 3`) with Gemini because the courses are code-jargon-heavy.
-- [ ] **3.6 Reconciliation** — for each content item: accessible lesson count = manifest terminal states = media + legitimate non-video entries; media count = transcript count.
-- [ ] **3.7 Failure sweep** — no `failed` manifest entries, no zero-byte/`.part` files, no missing transcript for an audio file.
+- [x] **3.4 Lives media — ✅ DONE 2026-08-04.** 69/69 courses, 1,084 media, ~13 GB, after the cookie was renewed. Zero local courses absent from the catalog.
+- [x] **3.5 Lives transcripts — ✅ DONE 2026-08-04. 1084/1084.** Ran as three passes of `scripts/transcribe_batches.py --jobs 3`: `openrouter` took 542 → 1069 (**$1.2511 for 527 lessons = $0.0024/lesson**, beating the $0.0032 baseline — the Xiaomi pin holding); a second `openrouter` pass recovered 5 more at **$0.022/lesson**, 9× the clean rate, because a looping generation bills to the `max_tokens` ceiling. The last 10 split into two unrelated causes:
+    - **1 was a pipeline bug, not the model** — see the `MIN_DURATION_FOR_WPM_SEC` fix under 4.4. Recovered on `openrouter` once fixed (`dynamodb-single-table…/10-paginação-no-dynamodb`, 5,275 w @ 195 wpm).
+    - **9 looped deterministically on MiMo**, failing all 4 retries on two consecutive passes. ⛔ **Retrying is the documented cure for the *stochastic* loop but does nothing for these** — the cure is a provider switch. Transcribed with `--provider gemini` (pause lifted with explicit user approval), sweep returned **69/69 clean, exit 0**. These 9 are the corpus's Gemini island:
+      | course | lesson |
+      |---|---|
+      | `dominando-o-react-hook-form` | `11-limpando-erros-com-clearerrors…` |
+      | `autenticacao-jwt-em-apis-node-js` | `03-entendendo-o-fluxo-de-autenticação-com-sessions` |
+      | `gerenciamento-de-estados-com-zustand` | `02-ferramentas-de-gerenciamento-de-estado` |
+      | `processamento-de-imagens-assincrona-…` | `05-redimensionando-a-imagem-com-o-sharp` |
+      | `s3-mais-seguranca-com-presigned-posts` | `07-criando-conditions-no-presigned-post` |
+      | `otimizando-configurando-ci-cd-…` | `02-conhecendo-os-presets-do-tailwindcss` · `03-criando-o-access-token-no-npm` |
+      | `upload-para-o-s3-com-lambda-functions-…` | `03-configurando-as-permissões-da-lambda-no-iam` |
+      | `sql-subqueries-transactions-e-triggers` | `04-trabalhando-com-as-transactions-na-prática…` |
+- [x] **3.6 Reconciliation — ✅ DONE 2026-08-04.** `scripts/reconcile.py input/jstack-lives output/jstack-lives` → **1084/1084 across 69 courses, 0 needing attention.** 46 numbering gaps remain advisory (only a live catalog session can settle them).
+- [x] **3.7 Failure sweep — ✅ DONE 2026-08-04.** No `failed` manifest entries, no `.part`/`.ytdl`, no zero-byte media or transcripts, no audio file without a non-empty transcript — across all four batches.
 
 ## Phase 4 — Release verification and handoff
 
 - [x] **4.1 Import/compile smoke** — every downloader imports and both new CLIs expose help successfully.
 - [x] **4.2 Offline safety/contract suite** — `.venv/bin/python -m unittest discover -s tests -v` passes 13/13.
 - [x] **4.3 Authenticated adapter smoke** — DesignBoost and Skool dry-runs pass without downloading media.
-- [ ] **4.4 Full test rerun after docs/final edits.**
-- [ ] **4.5 Git hygiene** — no cookies, API payloads, media, transcripts, tokens, or signed URLs are tracked.
-- [ ] **4.6 Durable state** — final counts and any genuine blockers recorded in this file and `MEMORY.md`.
+- [x] **4.4 Full test rerun — ✅ 26/26 passing (2026-08-04).** Grew from 13 with two regression tests for the wpm-floor fix: `MIN_DURATION_FOR_WPM_SEC` (30s) exempts short trailing chunks, because `ffmpeg -f segment` leaves a sliver whenever a lesson runs just past a multiple of the chunk length (1622s at 540s → a 2.0s tail; the one word genuinely spoken there scored 28.2 wpm and failed the whole 27-minute lesson). The second test asserts the exemption is not a hole — a real silent-drop on a 60s chunk still fails.
+- [x] **4.5 Git hygiene — ✅ verified 2026-08-04.** No cookies, API payloads, media, transcripts, tokens, or signed URLs tracked or untracked-visible; `input/`/`output/` stay ignored. Code landed in `54dfafa` (backend pin + short-chunk density exemption + 2 tests); the docs above are the only uncommitted files.
+- [x] **4.6 Durable state — ✅ 2026-08-04.** Final counts, provider provenance, and the cost-per-lesson figures are recorded in this file and `MEMORY.md`.
 
 ## Phase 5 — Stage 2 for the new corpus
 
