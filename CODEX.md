@@ -29,7 +29,7 @@ Decide **per course, at invocation** — this affects **Stage 1 only** (Stage 2 
 
 | provider | $/h audio | output ceiling | jargon fidelity |
 |---|---|---|---|
-| `openrouter` (`xiaomi/mimo-v2.5`) — **default** | **~$0.014** | **131k** | ⛔ **fluent** substitution (`unknown`→`any`, 7/7) |
+| `openrouter` (`xiaomi/mimo-v2.5`, **pinned to the Xiaomi backend**) — **default** | **~$0.008** | 131k model / **8k `max_tokens`** | ⛔ **fluent** substitution (`unknown`→`any`, 7/7) |
 | `gemini` (`gemini-2.5-flash`) | ~$0.155 | 65,535 | ✅ best |
 | `groq` (`whisper-large-v3-turbo`) | ~$0.040 | n/a (real STT) | ⛔ garbled (`any`→"N") |
 
@@ -48,6 +48,14 @@ Tell from the `input/<course>/` folder name + any `*.description.md` / `manifest
 - **Audio chunking** (`_transcribe_audio` / `audio.split_audio`, >15 min → ~10 min) — long lessons otherwise hit the 64k output ceiling *and* loop one phrase (seen 1011×). Absurd word counts or a sentence repeated dozens of times = chunking regressed.
 - **10-min per-request timeout** (`HttpOptions(timeout=)`) — a slept machine once froze a call for 11h. Keep it so a frozen call errors and the batch resumes.
 - **Quota handling** (`generate_with_retry` + `DailyQuotaExhausted`) — retry per-minute 429s, stop cleanly on the per-day cap. Do not replace with blind retries.
+- **⛔🔴 An OpenRouter model name is not one model — PIN THE BACKEND (`config.OPENROUTER_PROVIDERS`).** Six providers serve `xiaomi/mimo-v2.5` and they differ in quantization, output ceiling, audio support and price. **Auto-routing sent every observed request to the single worst one.** Measured on one identical 540s chunk, 2026-08-04:
+  | backend | quant | result | cost/chunk |
+  |---|---|---|---|
+  | **Xiaomi** (pinned default) | fp8 | clean, 1,771 w | **$0.00125** |
+  | DeepInfra (what auto-routing picks) | bf16 | **LOOPED**, 8,003 w | **$0.03338** |
+  | DeepInfra | bf16 | clean, 1,753 w | $0.00667 |
+  | Novita / Venice | — | reject audio (404 / 429) | — |
+  A looped generation bills **27× a clean chunk**, and DeepInfra's 16,384 output ceiling sits right at a working `max_tokens`. Pinning cut the projected cost of 577 lessons from **~$6.75 to ~$1.00**. Pin hard (`allow_fallbacks: False`) — a silent fallback restores both the price and the loop.
 - **The OpenRouter silent audio-drop is common, not exotic** (`_assert_audio_was_received` + the retry in `transcribe_file`'s 200-branch) — MiMo returns HTTP 200, `finish_reason: stop`, and a fluent *"I don't see an audio file attached"* on **~7% of requests** (4 of 57 measured on `jstack-lives`, 2026-08-04). It is a per-request delivery fault, not a property of the file, so the client retries it like a 429. Keep both halves: the wpm floor is the only thing that detects it, and the retry is the only thing that stops every batch from leaving a residue.
 
 ## Commands
@@ -91,5 +99,6 @@ Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file
 - Starting `scripts/transcribe_batches.py` before the Stage 0 batch exits, or alongside an overlapping `main.py` worker.
 - Passing accented paths to `files.upload`, or removing the UTF-8 guard / `_ascii_name`.
 - Removing chunking and hitting `MAX_TOKENS` / repetition loops on long lessons.
+- **Blaming a repetition loop on the audio or the chunk size.** On OpenRouter it is **stochastic and backend-specific**: the same 540s chunk looped ~1-in-6 at `temperature: 0`, and halving to 300s looped exactly the same. Retry it (the client now does) and pin the backend — do not go hunting for a chunk size that fixes it.
 - Auto-promoting packs into `knowledge/` without human review.
 - Inventing a `compiled:` date.
