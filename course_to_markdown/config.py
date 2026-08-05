@@ -109,7 +109,24 @@ OPENROUTER_MAX_AUDIO_SEC = int(os.getenv("COURSE_TO_MD_OPENROUTER_MAX_AUDIO_SEC"
 # MiMo is a reasoning model, and transcription needs no chain-of-thought. With no explicit
 # budget it can spend the provider's default entirely on reasoning and return
 # finish_reason="length" carrying zero content -- billed in full (22x on jstack-lives).
-OPENROUTER_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_OPENROUTER_MAX_TOKENS", "16000"))
+#
+# The size is a cost lever, not just a safety net: when a generation falls into the
+# repetition loop it runs to exactly this ceiling and every token is billed, so the cap is
+# the per-loop bill. A real 540s chunk measures 1,647-1,755 words (~3.5k tokens), so 8k
+# keeps >2x headroom while halving what each loop costs.
+OPENROUTER_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_OPENROUTER_MAX_TOKENS", "8000"))
+
+# Six backends serve this model and they are NOT interchangeable. Left to auto-routing,
+# every observed request went to DeepInfra -- the only bf16 one, the dearest, and the one
+# that loops. Measured on one identical 540s chunk (2026-08-04):
+#     Xiaomi     fp8   clean   1,771 words   $0.00125
+#     DeepInfra  bf16  LOOPED  8,003 words   $0.03338   (27x a clean Xiaomi chunk)
+#     DeepInfra  bf16  clean   1,753 words   $0.00667   (5.3x Xiaomi)
+# Novita and Venice reject audio (404 "no allowed providers" / 429). Pin hard rather than
+# ordering with fallbacks: a silent fallback reintroduces both the cost and the loop, and
+# transient Xiaomi 429s are already retried by the client.
+OPENROUTER_PROVIDERS = [p.strip() for p in os.getenv(
+    "COURSE_TO_MD_OPENROUTER_PROVIDERS", "Xiaomi").split(",") if p.strip()]
 
 # --- Generation limits ---
 TRANSCRIBE_MAX_OUTPUT_TOKENS = int(os.getenv("COURSE_TO_MD_TRANSCRIBE_MAX_TOKENS", "65536"))

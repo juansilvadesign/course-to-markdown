@@ -43,6 +43,15 @@ STOP_IF_RETRY_AFTER_OVER_SEC = 300.0
 # request, drops the audio part, and replies "please send the audio file".
 MIN_WORDS_PER_MIN = 30.0
 
+# ...but the ratio is meaningless on a very short segment, and `ffmpeg -f segment` emits a
+# sliver whenever a lesson runs just past a multiple of the chunk length. A 1622s lesson at
+# 540s leaves a 2.0s tail; the model returned the single word actually spoken there and the
+# floor read 28.2 wpm, failing the whole 27-minute lesson (dynamodb-single-table lesson 10,
+# 2026-08-04). The guard has no power down here anyway: the silent-drop apology it exists to
+# catch is ~8 words, which on a 2s chunk scores 240 wpm and sails through. Below this
+# duration, trust the chunk.
+MIN_DURATION_FOR_WPM_SEC = 30.0
+
 # OpenRouter accepts a `format` hint next to the base64 payload. Stage 1 always hands us
 # a normalized mono MP3, so mp3 is both the default and the overwhelmingly common case.
 _AUDIO_FORMATS = {".mp3": "mp3", ".wav": "wav"}
@@ -158,6 +167,10 @@ def transcribe_file(audio_path: Path, model: str, language: str | None, api_key:
         "top_p": 1,
         "usage": {"include": True},
     }
+    if config.OPENROUTER_PROVIDERS:
+        # Hard pin, no fallbacks: see config.OPENROUTER_PROVIDERS for the measured
+        # cost/quality gap between backends serving this same model.
+        body["provider"] = {"only": config.OPENROUTER_PROVIDERS, "allow_fallbacks": False}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -234,6 +247,8 @@ def _assert_audio_was_received(text: str, audio_path: Path, model: str) -> None:
     """
     duration = audio.probe_duration(audio_path)
     if not duration or duration <= 0:
+        return
+    if duration < MIN_DURATION_FOR_WPM_SEC:
         return
     wpm = len(text.split()) / (duration / 60.0)
     if wpm < MIN_WORDS_PER_MIN:

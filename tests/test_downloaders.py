@@ -417,6 +417,30 @@ class OpenRouterClientTests(unittest.TestCase):
         finally:
             openrouter_client.audio.probe_duration = original
 
+    def test_short_trailing_chunk_skips_the_density_guard(self) -> None:
+        """`ffmpeg -f segment` leaves a sliver when a lesson runs just past a multiple of the
+        chunk length: 1622s at 540s -> a 2.0s tail. One genuinely-spoken word there scored
+        28.2 wpm and failed the whole 27-minute lesson. Too short to judge -> do not judge."""
+        original = openrouter_client.audio.probe_duration
+        openrouter_client.audio.probe_duration = lambda _p: 2.037
+        try:
+            openrouter_client._assert_audio_was_received(
+                "certo", Path("chunk_003.mp3"), "xiaomi/mimo-v2.5")
+        finally:
+            openrouter_client.audio.probe_duration = original
+
+    def test_density_guard_still_fires_just_above_the_short_chunk_floor(self) -> None:
+        """The exemption must not become a hole: a real silent-drop on a 60s chunk still fails."""
+        original = openrouter_client.audio.probe_duration
+        openrouter_client.audio.probe_duration = lambda _p: 60.0
+        try:
+            with self.assertRaises(openrouter_client.AudioNotReceived):
+                openrouter_client._assert_audio_was_received(
+                    "I don't see an audio file attached.",
+                    Path("chunk_000.mp3"), "xiaomi/mimo-v2.5")
+        finally:
+            openrouter_client.audio.probe_duration = original
+
     def test_rate_limit_window_decides_stop_vs_retry(self) -> None:
         stop = FakeRateLimitResponse("rate limit exceeded: requests per day")
         retry = FakeRateLimitResponse("rate limit exceeded: requests per minute")
