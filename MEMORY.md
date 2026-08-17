@@ -8,6 +8,18 @@ type: project
 
 Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP). See [`README.md`](README.md) for usage; this file holds the decisions, gotchas, and state a future session needs.
 
+## ▶ Live resume state
+
+> **Migrated out of the global memory router 2026-08-16.** The router keeps a one-line stub pointing here; ⛔ new detail lands in this file, not in the router. The forbidden-path incident itself is documented at length in [`CLAUDE.md`](CLAUDE.md) § *Common mistakes* — this block is only the open state.
+
+- ✅ **Stages 0 and 1 are FINISHED and pushed: 1,668 / 1,668.**
+- 🔴 **Phase 5 shipped on a FORBIDDEN path (2026-08-05): 19 of 102 packs were compiled on the Gemini API instead of the Claude subscription. Phases 5.2 + 5.3 are RE-OPENED.**
+- **Next, in order:**
+  1. **Delete `scripts/compile_lives_stage2.py`** — it must never be committed and must not be reused.
+  2. **Recompile the 19 packs via `course-module-compiler` subagents**, per module.
+- ⛔ **Promote nothing** into `knowledge/<domain>/courses/` until those 19 are recompiled. The staged packs are not trustworthy.
+- ✅ **The jargon audit was RUN: 3 of the 19 lose a term.** ⭐ Load-bearing caveat — **the audit did *not* reach the library**, so a clean-looking library is not evidence here.
+
 ## Architecture — three stages, two processing engines
 
 **Stage 0 — authenticated acquisition (Python + exported browser session).** Platform adapters under `downloaders/` enumerate legitimately accessible curricula and write transcription-ready `.m4a` plus resumable manifests under `input/`. JStack has its mature adapter; DesignBoost and Skool share `_shared.py` for Netscape-cookie parsing, redacted logging, quiet signed-URL downloads, DRM refusal, atomic manifests, and audio/video modes. Login is never automated, and working artifacts remain gitignored.
