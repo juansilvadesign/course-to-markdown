@@ -136,3 +136,9 @@ The simple validation lesson hid four bugs that only a real nested course surfac
 - `input/` (drop the course here) · `output/` (transcripts + staged packs) — both gitignored
 - `TASKS.md` — active execution state · `ROADMAP.md` — deferred/v2+ scope
 - Skill: [`../../skills/knowledge-compiler`](../../skills/knowledge-compiler) · Idea: `knowledge/ideas/course-videos-to-knowledge-markdown.md`
+
+## 📚 Detailed history
+
+⚠️ **This repository is PUBLIC, so the full internal history is deliberately NOT kept here.** This file carries the sanitized technical state only.
+
+The complete record lives in the private `ai-synthesizer` workspace at `knowledge/projects/_memory/project_course_to_markdown.md` — session-by-session, including the parts that must not be published (hosting account details, client agreements, internal IDs). Folded there 2026-08-17.
