@@ -14,11 +14,41 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 
 - ✅ **Stages 0 and 1 are FINISHED and pushed: 1,668 / 1,668.**
 - 🔴 **Phase 5 shipped on a FORBIDDEN path (2026-08-05): 19 of 102 packs were compiled on the Gemini API instead of the Claude subscription. Phases 5.2 + 5.3 are RE-OPENED.**
-- **Next, in order:**
-  1. **Delete `scripts/compile_lives_stage2.py`** — it must never be committed and must not be reused.
-  2. **Recompile the 19 packs via `course-module-compiler` subagents**, per module.
-- ⛔ **Promote nothing** into `knowledge/<domain>/courses/` until those 19 are recompiled. The staged packs are not trustworthy.
-- ✅ **The jargon audit was RUN: 3 of the 19 lose a term.** ⭐ Load-bearing caveat — **the audit did *not* reach the library**, so a clean-looking library is not evidence here.
+
+### ▶ Stage-2 rerun IN PROGRESS — 2026-08-19
+
+- ✅ **`scripts/compile_lives_stage2.py` DELETED — `git rm` + commit `b48f097`, NOT pushed.** ⚠️ The old note said "do not commit it"; it **was already committed and pushed** (`83503a7`), so removal was a `git rm`, not an `rm`. It survives in history — treat the file as reachable, not gone. No hardcoded key in it.
+- **Recompile model: one `course-module-compiler` agent per COURSE (not per module), ≤4 concurrent, Sonnet with `ESCALATE_TO_OPUS` left available.** No agent has escalated so far — instructors name their own frameworks, so the Opus triggers don't fire.
+- **New packs are written BESIDE the old ones as `<course>.pack.v2.md`** (`.v2-a`/`.v2-b` when split). ⛔ `output/` is **gitignored**, so overwriting a defective pack destroys the only copy — the v2 suffix keeps the bad pack as evidence until a human compares and swaps.
+- ✅ **4 of 19 done and independently verified**, coverage measured before → after:
+  | course | before | after | note |
+  |---|---|---|---|
+  | `sql-subqueries-transactions-e-triggers` | 45% | **100%** | 11/11 |
+  | `gerenciamento-de-estados-com-zustand` | 42% | **100%** | 12/12, `unknown` restored |
+  | `login-social-federated-com-aws-cognito` | 40% | **100%** | 25/25, split 2-way |
+  | `sql-joins-json-no-postgres-e-indices` | 62% | **100%** | 8/8 |
+- **15 remain.** 4 were in flight at checkpoint: `login-social-via-magic-link…`, `formularios-dinamicos…`, `enviando-e-mails-com-o-aws-ses`, `websockets-e-cronjobs-serverless-na-aws`. 11 not yet started.
+- ⛔ **Promote nothing** into `knowledge/<domain>/courses/` until all 19 are recompiled AND a human compares v2 against v1 (5.4). The v2 packs are staged, not blessed.
+
+### ⭐ Findings this rerun paid for — do not rediscover
+
+- 🔴 **A shared `1000-` filename prefix means filename sort ≠ curriculum order.** 6 modules across 3 courses name *every* lesson `1000-<title>`, so sorting by filename yields **alphabetical** order and silently scrambles a build-along sequence. Nothing announces it — the pack looks complete. **The ordering authority is `input/<course>/manifest.json` → `lessons[]`** (platform order, match by `title`). Affected: `enviando-e-mails-com-o-aws-ses/01-…`, `login-social-federated-com-aws-cognito/01-,03-,04-`, `websockets-e-cronjobs-serverless-na-aws/02-,03-`.
+- 🔴 **The jargon audit's "3 of 19 lose a term" is a FLOOR, not a ceiling.** `output/jstack-lives-gemini-ref/` holds **one reference lesson per course** (19 of 1,084 ≈ **1.75%** sampled), so `--reference` mode is structurally blind everywhere it has no counterpart. Proof: a compiling agent reading the full text found **"Zustand" rendered as "Svelte" ×6, with "Zustand" appearing 0×**, in `gerenciamento-de-estados-com-zustand/1000-conteúdo/11-configurando-e-utilizando-a-devtools` — a lesson the baseline never covered. ⭐ This is a *different* corruption class than the documented one: not term **loss** (a term present in ref, absent in main) but **substitution by another real product name**, which reads perfectly and defeats a diff that has nothing to diff against.
+- ✅ **A corpus-wide grep for `svelte` returns only 4 files**, and 3 are legitimate (Tailwind comparison, Next-auth intro, SSG tooling). So the substitution is **narrow, not systemic** — but it is only detectable by reading, not by the audit.
+- ✅ **The 3 known term-loss lessons needed NO Stage-1 re-run.** A faithful Gemini transcript of each already exists under `output/jstack-lives-gemini-ref/`; the compiling agent is simply pointed at that file for that one lesson. Cheaper and strictly better than re-transcribing. (5.5 remediation closes this way.)
+- **Packs run 1.5–1.75× over the ~2k cap** (~2,900–3,500 tokens) once a course is actually read in full. course.md's remedy is "split **by module cluster**" — which is undefined for a single-module course, so the cap is being exceeded deliberately there rather than collapsing named distinctions. Flagged as advisory for 5.4, not silently passed.
+- ⚠️ **Agents under-report `tokens_estimate`** (one claimed 2,250 on a ~3,500-token pack). The frontmatter number is a *claim*; `scripts/pack_coverage.py` now recomputes it.
+
+### 🔧 New tool — `scripts/pack_coverage.py` (this is the 5.3 answer)
+
+Content-based coverage reconciliation, replacing the counting artifact that blessed the 19. Matches every lesson transcript to a line in its pack's `## Curriculum` spine by title, and checks frontmatter keys, a plausible `compiled` date (`PROJECT_EPOCH` catches the invented `2024-07-30`), required sections, truncation, diacritics, and the token budget.
+
+```bash
+.venv/bin/python scripts/pack_coverage.py output/jstack-lives                          # audit the tree
+.venv/bin/python scripts/pack_coverage.py output/jstack-lives --pack-glob '*.pack.v2*.md' --expect-today
+```
+
+⭐ **Validated against the known-bad corpus before being trusted**: it fails all 19 defective packs and measures them at **34% mean coverage** (median 42%, seven at 0% for having no `## Curriculum` at all) — independently reproducing the documented "22–66%, median 37%" by a different method. ⛔ **Its own limit, printed in its output: a matched curriculum line proves a lesson was not silently dropped — it does NOT prove the body was compressed faithfully.** A consistency gate is not a correctness gate; fidelity is still human review at 5.4.
 
 ## Architecture — three stages, two processing engines
 
