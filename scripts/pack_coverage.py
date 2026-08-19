@@ -165,6 +165,32 @@ def check_course(
                 "course.md says split by module cluster and cross-link"
             )
 
+    # --- orphaned split halves ---
+    # A run killed mid-split leaves a Part 1 that promises a Part 2 which was never
+    # written. By file EXISTENCE the course looks compiled, and the coverage check
+    # below can even pass if Part 1 happens to name every lesson. Only the sibling
+    # link is evidence. Observed for real when a session limit killed two agents
+    # between their two Write calls (2026-08-19).
+    stems = {p.name for p in packs}
+    for pack in packs:
+        m = re.match(r"(?P<base>.+?)-(?P<half>[a-z])\.md$", pack.name)
+        if not m:
+            continue
+        base, half = m.group("base"), m.group("half")
+        siblings = {s for s in stems if s != pack.name and s.startswith(base + "-")}
+        if not siblings:
+            problems.append(
+                f"{pack.name}: ORPHANED split half -- it is part '{half}' but no "
+                f"sibling '{base}-*.md' exists (a run killed between two writes?)"
+            )
+            continue
+        body = next(d["raw"] for p, d in zip(packs, parsed) if p.name == pack.name)
+        if not any(s in body for s in siblings):
+            warnings.append(
+                f"{pack.name}: split half does not cross-link its sibling "
+                f"({', '.join(sorted(siblings))}) -- course.md requires cross-linking"
+            )
+
     # --- diacritic sanity: PT-BR substance must not be ASCII-folded ---
     if not re.search(r"[áàâãéêíóôõúüç]", merged, re.IGNORECASE):
         problems.append("no PT-BR diacritics anywhere -- body may have been ASCII-folded")
