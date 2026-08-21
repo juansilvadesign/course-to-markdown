@@ -13,9 +13,31 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 > **Migrated out of the global memory router 2026-08-16.** The router keeps a one-line stub pointing here; ⛔ new detail lands in this file, not in the router. The forbidden-path incident itself is documented at length in [`CLAUDE.md`](CLAUDE.md) § *Common mistakes* — this block is only the open state.
 
 - ✅ **Stages 0 and 1 are FINISHED and pushed: 1,668 / 1,668.**
-- 🔴 **Phase 5 shipped on a FORBIDDEN path (2026-08-05): 19 of 102 packs were compiled on the Gemini API instead of the Claude subscription. Phases 5.2 + 5.3 are RE-OPENED.**
+- 🟡 **Phase 5 forbidden-path damage REPAIRED (2026-08-21): all 19 packs recompiled on the Claude subscription, 19/19 verified at 100% coverage. 5.2 closed; 5.3 closed by `scripts/pack_coverage.py`. ⛔ 5.4 (human v1↔v2 review) still OPEN — promote nothing.**
 
-### ▶ Stage-2 rerun IN PROGRESS — 2026-08-19
+### ✅ Stage-2 rerun COMPLETE — 19/19, 272/272 lessons, 2026-08-21
+
+- ✅ **All 19 courses recompiled and verified: `19 pass / 0 fail`, 272 lessons, 29 pack files** (`pack_coverage.py … --pack-glob '*.pack.v2*.md'`). Zero packs carry the invented `compiled: 2024-*` date. Coverage went from a 22–66% (median 37%) cohort to **100% on every course**.
+- ⛔ **Still staged, NOT blessed.** 5.4 (human v1↔v2 comparison) is the remaining gate; promote nothing until it runs. A matched Curriculum line proves no lesson was silently dropped — it does **not** prove the body is faithful.
+- 🔴 **The ~2k token cap in `course.md` is mis-set for these lives: 27 of 29 packs exceed it** (min 1,933 · median 2,641 · max 4,383), *including packs that are already halves of a split*. 27/29 is not 27 agents misjudging — decide whether to raise the cap for `type: course` or accept the overage; ⛔ don't force three-way splits to satisfy a number the corpus disagrees with.
+
+#### ⭐ Agent-supervision failures this rerun paid for — all caught by re-measuring, never by the agent's own report
+
+- 🔴 **Agents invent a "missing lesson" out of a platform NUMBERING GAP.** These courses skip numbers (`01,02,04…`) because the *platform* skips them — the manifest shows the same gap. Two agents wrote `(não capturado no lote de transcrição — ausente do output)` into the pack as a curriculum line, **fabricating a Stage-1 transcription failure that never happened**; a third nearly did. ⭐ The tell is that the wrong answer is the *alarming* one, so it survives review. Fix: compare transcripts against the **manifest**, not against a contiguous number line, and say "complete" out loud. Prompts must ban the words `não capturado`/`ausente`/`missing`.
+- 🔴 **`manifest.json` lives under `input/<course>/`, NEVER under `output/<course>/`.** Prompts that named the output path sent agents hunting for a file that cannot be there; they silently fell back to filename sort. It caused no damage this time (all 3 collision-prone courses were checked against the real manifest and matched), but the ordering authority was unenforceable for half the run.
+- 🔴 **A `tokens_estimate` an agent did not MEASURE is a guess, and it guesses low.** Corrected by hand on 4 packs (2000→3480, 2250→3600, 2450→3491, 5000→3885). Agents without shell access hand-estimate character counts — one was accurate (15,900 vs 16,219 actual), so require the measurement and re-check it.
+- 🔴 **A session limit kills an agent between its two split Writes**, leaving a Part 1 that promises a Part 2 nobody wrote — and by file *existence* the course looks compiled. Hit **3 separate times**. ⭐ Cheaper than respawning: check the disk first — twice the agent had already finished the content and died during bookkeeping. Prompts must say "write BOTH halves in the SAME turn".
+- ⛔ **Split halves must be `-a`/`-b`.** One agent used `-parte2`, which defeats the orphan detector entirely (it keys on the suffix). Another left a third **stub** file at the unsuffixed `.pack.v2.md` path pointing at its own halves — the glob picks it up and it fails as truncated. Name the convention in the prompt.
+- ⛔ **Agents fall back to `author: JStack` when the description sidecar is one directory away.** `input/<course>/00-*.description.md` carries `**Autor(es):** Mateus Silva`. Point at it explicitly.
+
+#### 🔧 `pack_coverage.py` fix — a filename cannot carry punctuation
+
+- 🔴 **The verifier reported a lesson that WAS in the spine as unreached.** `03-criando-a-ui-com-o-shadcnui.transcript.txt` reduces to the single token `shadcnui`; the pack correctly writes `shadcn/ui`, which folds to `shadcn`+`ui` — overlap **0%**, coverage 11/12. **The tool was wrong, not the pack.** Fix: also match a token against a *squashed* (all-alnum) form of each curriculum line, guarded at `len>=6`. Same measurement-artifact class as the jargon audit's whole-word matching over a bilingual corpus.
+- ⭐ **Validated the fix the only way that means anything: re-ran the known-bad v1 corpus and confirmed all 19 are STILL flagged** (0–86%, most under 60%). A gate change that makes a failure disappear must be proven not to have made the gate weaker.
+
+### ▶ Stage-2 rerun — history (started 2026-08-19)
+
+> ⚠️ **SUPERSEDED by the block above.** The counts here ("4 of 19 done", "15 remain") are a mid-run snapshot from 2026-08-19 — kept for the method and the before→after numbers, not as state. Current state: **19/19 done**.
 
 - ✅ **`scripts/compile_lives_stage2.py` DELETED — `git rm` + commit `b48f097`, NOT pushed.** ⚠️ The old note said "do not commit it"; it **was already committed and pushed** (`83503a7`), so removal was a `git rm`, not an `rm`. It survives in history — treat the file as reachable, not gone. No hardcoded key in it.
 - **Recompile model: one `course-module-compiler` agent per COURSE (not per module), ≤4 concurrent, Sonnet with `ESCALATE_TO_OPUS` left available.** No agent has escalated so far — instructors name their own frameworks, so the Opus triggers don't fire.
