@@ -197,13 +197,32 @@ def check_course(
 
     # --- content-based coverage: every lesson accounted for in the spine ---
     curriculum_tokens = [_tokens(line) for line in all_curriculum]
+    # A filename cannot carry punctuation, so `shadcn/ui` reaches us as the single
+    # token `shadcnui` while the pack -- correctly -- writes the real product name.
+    # Word-level matching scores that 0% and reports a lesson that IS in the spine
+    # as unreached (observed on multi-step-wizard/03, 2026-08-20). Compare against a
+    # squashed form too. Same measurement-artifact class as the jargon audit's
+    # whole-word matching over a bilingual corpus -- the tool was wrong, not the pack.
+    curriculum_squashed = [
+        re.sub(r"[^a-z0-9]", "", _fold(line)) for line in all_curriculum
+    ]
+
+    def _score(want: set[str], have: set[str], squashed: str) -> float:
+        hits = sum(
+            1 for w in want if w in have or (len(w) >= 6 and w in squashed)
+        )
+        return hits / len(want)
+
     unmatched: list[str] = []
     for lesson in lessons:
         want = _tokens(lesson_title(lesson))
         if not want:
             continue
         best = max(
-            (len(want & have) / len(want) for have in curriculum_tokens),
+            (
+                _score(want, have, squashed)
+                for have, squashed in zip(curriculum_tokens, curriculum_squashed)
+            ),
             default=0.0,
         )
         if best < 0.34:
