@@ -90,6 +90,17 @@ REWORD_SIMILARITY = 0.6
 # about what counts as an elision, and let MIN_FRAGMENT_CHARS carry the rigor.
 ELISION = re.compile(r"\[\s*(?:\.\.\.|…)\s*\]|\(\s*(?:\.\.\.|…)\s*\)|\.{3,}|…")
 
+# Square brackets do TWO opposite jobs in these packs and conflating them costs
+# a false fabrication report either way:
+#   "[...]"        -> text was REMOVED, so the sides are not contiguous (split)
+#   "[o índice]"   -> text was ADDED for clarity and was never spoken, so the
+#                     sides ARE contiguous once it is dropped (remove)
+# Treating an insertion as quoted speech makes the fragment unmatchable, which
+# reads as an invented quote. Two of the four NOT_FOUND hits in the 19-course
+# run were exactly this.
+INSERTION = re.compile(r"\[[^\]\n]*\]")
+_SPLIT_SENTINEL = "\x00"
+
 # Course-slug words that carry no subject signal.
 SLUG_STOPWORDS = {
     "a", "as", "ao", "aos", "com", "como", "da", "das", "de", "do", "dos", "e",
@@ -162,6 +173,17 @@ def load_transcripts_raw(course_dir: Path) -> dict[str, str]:
 
 # ---------------------------------------------------------------- Gate Q
 
+def split_quote(text: str) -> list[str]:
+    """Normalized fragments of a quote, honouring elisions and insertions.
+
+    Elisions break the quote into pieces that must each be found; insertions are
+    editorial and are simply dropped, leaving the surrounding words contiguous.
+    """
+    t = ELISION.sub(_SPLIT_SENTINEL, text)
+    t = INSERTION.sub(" ", t)
+    return [normalize(part) for part in t.split(_SPLIT_SENTINEL)]
+
+
 def parse_quotes(pack_text: str) -> list[dict]:
     """Pull (text, cited lesson) pairs out of ``## Quotes worth keeping``."""
     quotes = []
@@ -170,8 +192,14 @@ def parse_quotes(pack_text: str) -> list[dict]:
         if not line.startswith("-"):
             continue
         body = line.lstrip("-").strip()
-        # The quote itself sits in the outermost pair of double quotes.
-        m = re.search(r"[\"“”](.+)[\"“”]", body)
+        # The closing quote is the one followed by the attribution dash or the
+        # end of the line -- NOT simply the last quote character present. A
+        # greedy match swallows an attribution that itself contains quotes
+        # (e.g. ... — lesson 08, *Title* (transcript truncates it as "setVal"))
+        # and then reports the citation text as an unquotable fragment.
+        m = re.match(r"[\"“”](.+?)[\"“”]\s*(?=[—–]|$)", body)
+        if not m:
+            m = re.search(r"[\"“”](.+)[\"“”]", body)
         if not m:
             continue
         text = m.group(1)
@@ -285,8 +313,7 @@ def resolve_cite(cite: str | None, transcripts: dict[str, str]) -> str | None:
 
 def check_quote(quote: dict, transcripts: dict[str, str]) -> dict:
     """Locate a quote's fragments in the corpus and grade the attribution."""
-    fragments = [normalize(f) for f in ELISION.split(quote["text"])]
-    fragments = [f for f in fragments if f]
+    fragments = [f for f in split_quote(quote["text"]) if f]
     if not fragments:
         return {**quote, "verdict": "EMPTY", "found_in": [], "weak": True,
                 "resolved_cite": None, "missing_fragments": [], "near_miss": None}
