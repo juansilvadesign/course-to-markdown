@@ -13,7 +13,34 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 > **Migrated out of the global memory router 2026-08-16.** The router keeps a one-line stub pointing here; ⛔ new detail lands in this file, not in the router. The forbidden-path incident itself is documented at length in [`CLAUDE.md`](CLAUDE.md) § *Common mistakes* — this block is only the open state.
 
 - ✅ **Stages 0 and 1 are FINISHED and pushed: 1,668 / 1,668.**
-- 🟡 **Phase 5 forbidden-path damage REPAIRED (2026-08-21): all 19 packs recompiled on the Claude subscription, 19/19 verified at 100% coverage. 5.2 closed; 5.3 closed by `scripts/pack_coverage.py`. ⛔ 5.4 (human v1↔v2 review) still OPEN — promote nothing.**
+- ✅✅ **Phase 5 forbidden-path incident CLOSED 2026-08-23. 5.2 + 5.3 + 5.4 all done; the 19 courses (29 pack files) are PROMOTED into `knowledge/coding/courses/`.** 🟡 Everything is **uncommitted**.
+
+### ✅ 5.4 COMPLETE — reviewed against the TRANSCRIPTS, then promoted, 2026-08-23
+
+- 🔴 **The task as written ("compare v2 against v1") could not have worked, and this is the reusable lesson.** v1 read a **median 37%** of each course and **7 of the 19 v1 packs are 358–1,286 B truncated stubs** that die mid-sentence inside the TL;DR. Agreement between v2 and v1 therefore corroborates *the partiality*, not the pack — the same family as [[feedback_agreement_with_a_known_partial_range_corroborates_the_partiality]]. The authority had to be the transcripts; v1 survived only as a regression diff, which found nothing lost.
+- **New instrument: `scripts/pack_fidelity.py`** (sibling to `pack_coverage.py`). **Gate Q** — every `## Quotes worth keeping` entry must trace to a transcript, classified VERBATIM / REWORDED / MISATTRIBUTED / STITCHED / NOT_FOUND / INCONCLUSIVE. **Gate S** — subject-term dropout, the substitution class a v1↔v2 diff structurally *cannot* see. **Gate T** — token measurement, recorded never graded.
+- ✅ **Zero fabrications in 53 quotes across all 19 courses. Zero transcript corruptions propagated into any pack.**
+- 🔴 **The compiler SILENTLY REPAIRS corrupted transcripts** — `Svelte ×6`→`Zustand`, `Zustend ×16`→`Zustand`, `form setval`→`form.setValue` (that one it even annotated in the pack). Good for the packs; it also means **transcript corruption is invisible downstream**, so the transcript is the only place it can ever be caught. `Zustend ×16` in `12-manipulação…immer` is **newly found** — the previously recorded `Svelte` case was not the only one.
+- 🟡 **Promoted WITH known quote-contract debt.** `SKILL.md` requires *"Verbatim, with location reference."* Actual: **13 VERBATIM · 14 REWORDED · 23 UNCITED · 1 STITCHED · 1 INCONCLUSIVE.** Every rewording is **spoken-disfluency cleanup**, hand-verified: a fixed misspeak (`criou`→`crie`), a pluralised verb (`ela seja`→`sejam`), a removed stutter (`um um uma`→`uma`). Meaning preserved throughout — debt, not wrong knowledge.
+- **`tokens_estimate` was wrong on 25 of 29 packs**: **17 under-stated, 8 OVER-stated**, 4 within ±50 (worst +979). Corrected from measured character count at promotion. ⛔ "Agents guess low" is a **tendency, not a law** — 8 guessed high.
+
+#### ⭐ Four false-positive rounds the instrument paid for — every one caught by re-measuring, never by the tool's own report
+
+⭐ In all four the **wrong answer was the alarming one**, which is the direction that survives review — same shape as [[feedback_agents_fabricate_alarming_findings_from_gaps]].
+
+- 🔴 **The elision regex missed a BARE `...`** (it handled `[...]` and `…` only). First run reported **6 quotes as fabricated**; 5 had both fragments verbatim in the transcript, one sentence apart. Nearly filed a fabrication charge against two clean packs.
+- 🔴 **Square brackets do two OPPOSITE jobs.** `[...]` = text removed (sides are *not* contiguous → split); `[o índice]` = editorial insertion never spoken (sides *are* contiguous → drop). Conflating them made 2 more quotes unmatchable. ⚠️ Consequence to accept: Gate Q now **cannot validate a claim made inside brackets** — a compiler could assert something false there and the gate would never object.
+- 🔴 **Similarity diluted by window size.** Scoring a fragment against a window 4× its length read two near-identical passages as 0.37. Fix: score **coverage of the fragment**, not symmetric similarity → the same passages score 0.92 and 1.0.
+- 🔴 **The fuzzy anchor could be a zero-frequency word.** A missing plural is simultaneously the rarest word *and* the absent one, so anchoring on it guaranteed 0.0 for exactly the cases the function exists to explain.
+- ⭐ **Every fix was re-validated against a planted known-bad pack AFTER the change**, because each one loosened the gate: an invented quote still scores 0.214 → `NOT_FOUND`, a real quote on the wrong lesson still reads `MISATTRIBUTED`, elision abuse reads `WEAK_MATCH` not a false `VERBATIM`, and `Svelte ×6` still surfaces after Gate S tightened. ⛔ [[feedback_loosening_a_gate_needs_a_known_bad_rerun]].
+- ⛔ **Gate S precision degrades on multi-word course slugs.** On the 25-lesson cognito course it emitted 8 findings, **all benign** (a setup lesson not saying "cognito"). Filtering out candidates that appear in the lesson's own title removed the worst of it (`CORS ×10` in a lesson titled `…-de-cors`), but read Gate S as a **lead list, not a defect list**.
+
+#### Promotion mechanics — `scripts/promote_packs.py`
+
+- **Library naming was NOT invented:** multiple packs' own `## See also` entries already link to `knowledge/coding/courses/<full-slug>.md`, so that is the convention (flat, no prefix, no `.pack` infix). Splits → `<slug>-a.md` / `<slug>-b.md`. ⚠️ The single earlier precedent `jstack-live-rbac-controle-de-acesso.md` uses a *prefixed, shortened* name and is now the odd one out.
+- **26 intra-pack cross-references repointed** from staging filenames to library names — split halves cite each other by filename, and every one of those would have dangled silently.
+- ⛔ **`output/` was not touched.** All 102 staged packs and all 19 v1 packs remain as defect evidence.
+- **3 references still dangle ON PURPOSE** — `database-design-…`, `dominando-o-prisma-orm`, `dominando-o-react-hook-form` are among the other 50, never recompiled, never promoted.
 
 ### ✅ Stage-2 rerun COMPLETE — 19/19, 272/272 lessons, 2026-08-21
 
