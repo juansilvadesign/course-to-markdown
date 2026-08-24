@@ -12,8 +12,21 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 
 > **Migrated out of the global memory router 2026-08-16.** The router keeps a one-line stub pointing here; ⛔ new detail lands in this file, not in the router. The forbidden-path incident itself is documented at length in [`CLAUDE.md`](CLAUDE.md) § *Common mistakes* — this block is only the open state.
 
+## ▶ Resume (checkpoint 2026-08-23)
+- **Project:** `knowledge/projects/course-to-markdown` (submodule; ⚠️ **public** — technical state only here)
+- **Doing:** Phase 5.6 — gating the 50 unpromoted jstack-lives courses, and closing the retention question.
+- **Next step:** **COMMIT.** Parent `ai-synthesizer` has 19 uncommitted paths (12 new library files + `knowledge/backups/`), this submodule has 3 (`scripts/promote_packs.py`, `TASKS.md`, `MEMORY.md`). ⛔ **Decide the tarball question BEFORE committing** — see *Don't forget*.
+- **Key paths / IDs:** `TASKS.md` §5.6 (gate results + the 9 held) · `knowledge/backups/course-to-markdown/` (`INDEX.md`, `output-tree/`, `input-metadata/`, `evidence/`) · `evidence/quote_ngram.py` (the quote instrument) · `scripts/promote_packs.py --only FILE`
+- **Open / blockers:** (1) the **32** courses failing coverage (median 58%) — recompile or drop; (2) the **9** held on synthesized quotes; (3) §5.5's 3 term-loss lessons — the only work the kept media serves; (4) quote-contract debt and the ~2k token cap, both still undecided from 5.4.
+- **Don't forget:** `output-tree/` and `output-2026-08-23.tar.gz` hold **identical bytes**. Now that the backup is inside git, git *is* the archive — decide whether to gitignore `*.tar.gz` there **before the first commit**, because removing a 7.76 MB blob afterwards needs a history rewrite. ⛔ Media is gone (21.49 GB, 1,615 files); only the 3 §5.5 courses can ever be re-transcribed.
+
 - ✅ **Stages 0 and 1 are FINISHED and pushed: 1,668 / 1,668.**
-- ✅✅ **Phase 5 forbidden-path incident CLOSED 2026-08-23. 5.2 + 5.3 + 5.4 all done; the 19 courses (29 pack files) are PROMOTED into `knowledge/coding/courses/`.** 🟡 Everything is **uncommitted**.
+- ✅✅ **Phase 5 forbidden-path incident CLOSED 2026-08-23. 5.2 + 5.3 + 5.4 all done; the 19 courses (29 pack files) are PROMOTED into `knowledge/coding/courses/`.**
+- ✅ **5.6 — the other 50 GATED 2026-08-23b: 8 more courses / 12 pack files promoted, library 60 → 72. 42 still held.** Two gates, each halving the cohort: coverage **18 pass / 32 fail** (median 58%), then quote provenance **9 pass / 9 fail** on the survivors. Full detail + the held list in `TASKS.md` §5.6. 🟡 The 12 library files, the extended `promote_packs.py`, and `knowledge/backups/` are **uncommitted**.
+- ✅ **RETENTION CLOSED 2026-08-23b — media deleted, transcripts archived.** `input/` **22.18 GB → 0.69 GB** (1,615 files); kept the 55 media files of the 3 courses §5.5 needs. Everything gitignored-and-irreplaceable now mirrors to `knowledge/backups/course-to-markdown/` in the **private** parent repo.
+    - ⛔🔴 **The transcripts were NEVER in git and the assumption that they were nearly cost all 1,688 of them.** `.gitignore:13` `/output/*` — a deliberate hard rule, because the `course-to-markdown` repo is **public** and this is paid course content. The promoted packs are the compressed ~3% and **cannot** rebuild a transcript. ⭐ The near-miss inverted the value ranking exactly: transcripts are **0.1%** of the media's size and the only artifact that can rebuild or verify a pack, while the 22 GB of media served no open task but three lessons. **Delete the big cheap thing, keep the small irreplaceable one.**
+    - ⛔🔴 **`input/` is NOT just media — an `rm -rf` of the course dirs destroys the ordering authority.** It also holds **74 `manifest.json`** (the *only* thing establishing curriculum order: 6 modules across 3 courses name every lesson `1000-<title>`, so filename sort silently goes alphabetical) and **1,705 `.description.md`** sidecars carrying the author. **1.85 MB total.** Delete by **media extension**, never by directory.
+    - ⭐ **Gate an irreversible delete on a positive assertion, not on "the backup ran".** The transcript count was asserted equal across **three** independent locations (live tree, mirror, tarball interior) before a single file was removed; the mirror was separately proven a real copy by **inode**, not by file count — [[feedback_cp_r_of_a_symlink_is_not_a_backup]].
 
 ### ✅ 5.4 COMPLETE — reviewed against the TRANSCRIPTS, then promoted, 2026-08-23
 
