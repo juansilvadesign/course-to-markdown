@@ -51,8 +51,13 @@ CHARS_PER_TOKEN = 3.7
 
 
 def library_name(pack: Path) -> str:
-    """``<slug>.pack.v2[-a].md`` -> ``<slug>[-a].md``."""
-    m = re.match(r"(?P<slug>.+)\.pack\.v2(?P<half>-[ab])?\.md$", pack.name)
+    """``<slug>.pack[.v2][-a].md`` -> ``<slug>[-a].md``.
+
+    The ``.v2`` infix is optional: the 19 recompiled courses carry it, but the
+    v1-era cohort promoted later is named plainly ``<slug>.pack.md``. Both drop
+    the whole ``.pack[.v2]`` infix on the way into the flat library.
+    """
+    m = re.match(r"(?P<slug>.+)\.pack(?:\.v2)?(?P<half>-[ab])?\.md$", pack.name)
     if not m:
         raise ValueError(f"unexpected staging name: {pack.name}")
     return f"{m['slug']}{m['half'] or ''}.md"
@@ -60,7 +65,7 @@ def library_name(pack: Path) -> str:
 
 def rewrite_body(text: str) -> tuple[str, int]:
     """Repoint staging filenames at their library names. Returns (text, count)."""
-    pattern = re.compile(r"([A-Za-z0-9._-]+)\.pack\.v2(-[ab])?\.md")
+    pattern = re.compile(r"([A-Za-z0-9._-]+)\.pack(?:\.v2)?(-[ab])?\.md")
     n = 0
 
     def sub(m: re.Match) -> str:
@@ -86,6 +91,14 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true", help="actually write files")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--glob", default="*.pack.v2*.md")
+    ap.add_argument(
+        "--only",
+        metavar="FILE",
+        help="file listing course directory names, one per line; promote ONLY these. "
+             "Load-bearing for the v1 cohort: `--glob '*.pack.md'` alone matches all 74 "
+             "v1 packs, which includes the 19 known-bad forbidden-path packs kept purely "
+             "as evidence and every course held back by review.",
+    )
     args = ap.parse_args()
 
     if not args.apply and not args.dry_run:
@@ -99,6 +112,24 @@ def main() -> int:
         return 2
 
     packs = sorted(STAGING.glob(f"*/{args.glob}"))
+
+    if args.only:
+        wanted = {
+            ln.strip() for ln in Path(args.only).read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        }
+        packs = [p for p in packs if p.parent.name in wanted]
+        # An allowlist that silently matches nothing is the dangerous failure: it
+        # reads as "nothing to do" rather than "your list is wrong".
+        missing = wanted - {p.parent.name for p in packs}
+        if missing:
+            print(f"!! ABORT -- {len(missing)} name(s) in --only matched no pack:",
+                  file=sys.stderr)
+            for m in sorted(missing):
+                print(f"     {m}", file=sys.stderr)
+            return 2
+        print(f"-- --only: restricted to {len(wanted)} course(s), {len(packs)} pack file(s)")
+
     if not packs:
         print("!! no packs matched", file=sys.stderr)
         return 2
