@@ -38,7 +38,9 @@ The **parallel `input/` tree** (the same path with `/output/` → `/input/`) hol
      - `source`: the module folder path (repo-relative).
      - `compiled`: today's date from the session context — **never invent a date**.
    - Body: `## TL;DR` → `## Core ideas` → `## Curriculum` (one line per lesson: *title — key concept. Exercise: verb + object*) → `## Capabilities unlocked` (verb-led) → `## Frameworks / models` → `## Quotes worth keeping` (sparing) → `## How to apply` → `## See also`.
-   - Honor the hard rules: **compress, never transcribe**; preserve named heuristics exactly; capture the **exercises**; identify the **meta-lesson**; cap ~2k tokens. If the module is too rich, split into cross-linked sub-packs by lesson cluster.
+   - Honor the hard rules: **compress, never transcribe**; preserve named heuristics exactly; capture the **exercises**; identify the **meta-lesson**. If the module is too rich, split into cross-linked sub-packs by lesson cluster.
+     - **Token cap: ~3,500 for `type: course`** (raised from ~2k on 2026-08-24), measured as **`characters / 3.7`** — never a word count. `tokens_estimate` must be that **measurement**: hand-estimates were wrong on 25 of 29 packs (17 under, **8 over**, worst +979), so do not "correct" a guess in either direction — count the characters and divide. ⛔ Don't force a three-way split to hit the number; splitting past the material's natural clusters collapses named distinctions, which costs more than the overage.
+     - **Quotes: the location reference is MANDATORY** (name the lesson). Courses are *spoken* sources, so you may clean **disfluency only** — a removed stutter (`um um uma` → `uma`), a fixed misspeak (`criou` → `crie`), an agreement fix (`ela seja` → `sejam`) — and you must mark that entry `(cleaned)`. ⛔ **Never** polish a spoken aside into written prose, **never** stitch one quotation from non-contiguous spans, and **never** put quotation marks around wording the instructor did not say. That last failure was found in 5 of 50 packs in this very corpus: the content was right, the lessons cited were real, and the speaker had said none of it. If you cannot quote faithfully, write fewer quotes or none.
 5. **Write the pack (staged).** Save it INTO the module folder as `<module-slug>.pack.md` (kebab-case slug of the module folder/title). This is a **staging** location for human review — do **not** write into `knowledge/<domain>/courses/` yourself.
 6. **Report back**, concisely:
    - Pack path written.
@@ -49,7 +51,7 @@ The **parallel `input/` tree** (the same path with `/output/` → `/input/`) hol
 
 ## Hard rules
 
-- **One module → one pack** (split only on the ~2k-token cap, cross-linked).
+- **One module → one pack** (split only on the ~3.5k-token cap, cross-linked).
 - **Staging only.** Promotion into `knowledge/` is a human step — never bulk-write the library.
 - **Subscription only.** No Gemini, no external API in this step.
 - **Be faithful.** Never invent content, numbers, or dates. Take `author`/`title` from the course metadata (step 4), never inferred from the audio — transcript name mentions are unreliable (ASR variance, sample data, the instructor being addressed). Everything in the body must trace to the transcripts.

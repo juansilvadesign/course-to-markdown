@@ -67,7 +67,7 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 
 - ✅ **All 19 courses recompiled and verified: `19 pass / 0 fail`, 272 lessons, 29 pack files** (`pack_coverage.py … --pack-glob '*.pack.v2*.md'`). Zero packs carry the invented `compiled: 2024-*` date. Coverage went from a 22–66% (median 37%) cohort to **100% on every course**.
 - ⛔ **Still staged, NOT blessed.** 5.4 (human v1↔v2 comparison) is the remaining gate; promote nothing until it runs. A matched Curriculum line proves no lesson was silently dropped — it does **not** prove the body is faithful.
-- 🔴 **The ~2k token cap in `course.md` is mis-set for these lives: 27 of 29 packs exceed it** (min 1,933 · median 2,641 · max 4,383), *including packs that are already halves of a split*. 27/29 is not 27 agents misjudging — decide whether to raise the cap for `type: course` or accept the overage; ⛔ don't force three-way splits to satisfy a number the corpus disagrees with.
+- ✅ **(RESOLVED 2026-08-24 — see the Resume block's "both 5.4 contract debts CLOSED".)** ~~🔴 The ~2k token cap in `course.md` is mis-set for these lives: 27 of 29 packs exceed it~~ (min 1,933 · median 2,641 · max 4,383), *including packs that are already halves of a split*. 27/29 was not 27 agents misjudging. Cap raised to **~3.5k for `type: course`** and the measurement unified on `chars / 3.7`; these very numbers were the chars/3.7 reading all along, which is how the unit mismatch was found. ⛔ don't force three-way splits to satisfy a number the corpus disagrees with.
 
 #### ⭐ Agent-supervision failures this rerun paid for — all caught by re-measuring, never by the agent's own report
 
