@@ -31,9 +31,11 @@ Gate S (subject-term dropout).  Catches the substitution class, which is the one
     unique to it as the substitution candidates.
 
 Gate T (token measurement).  Reports each pack's measured token estimate. 27 of
-    29 v2 packs exceed course.md's ~2k cap, which is evidence the cap is mis-set
-    for these lives rather than 27 agents misjudging. RECORDED, NEVER GRADED --
-    an overage does not fail a pack here.
+    29 v2 packs exceeded course.md's old ~2k cap, which was evidence the cap was
+    mis-set for these lives rather than 27 agents misjudging. RESOLVED 2026-08-24:
+    the cap is now ~3.5k, the corpus's measured p90, and both the verifier and
+    these scripts count chars/3.7 (they previously disagreed by a median 1.42x).
+    RECORDED, NEVER GRADED -- an overage does not fail a pack here.
 
 WHAT THIS PROVES AND WHAT IT DOES NOT
 -------------------------------------
@@ -61,7 +63,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 # Shared with pack_coverage.py -- keep in step if either moves.
-TOKEN_CAP = 2000
+TOKEN_CAP = 3500
 CHARS_PER_TOKEN = 3.7
 
 # A quote fragment shorter than this cannot discriminate; it will match by luck.

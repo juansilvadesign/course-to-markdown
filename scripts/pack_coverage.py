@@ -42,7 +42,11 @@ REQUIRED_SECTIONS = ("## TL;DR", "## Curriculum", "## How to apply")
 PROJECT_EPOCH = _dt.date(2026, 6, 19)
 
 # course.md's soft cap, and a PT-BR chars-per-token rule of thumb.
-TOKEN_CAP = 2000
+# Raised 2000 -> 3500 on 2026-08-24 when the cap was re-baselined to the corpus's
+# measured p90. The verifier used to count words*1.33 while this counted chars/3.7;
+# the two disagreed by a median 1.42x, so "over cap" was unreadable without naming
+# the instrument. Both sides now use chars/3.7. Caps by type live in SKILL.md.
+TOKEN_CAP = 3500
 CHARS_PER_TOKEN = 3.7
 
 # Words too common in these course titles to carry matching signal.
@@ -147,7 +151,7 @@ def check_course(
             )
 
         # --- token budget (advisory) ---
-        # course.md caps a pack at ~2k tokens and says to SPLIT by module cluster
+        # course.md caps a pack at ~3.5k tokens and says to SPLIT by module cluster
         # rather than ship one oversized pack. Over-cap is a judgment call, so it
         # warns rather than fails -- but a WRONG tokens_estimate is not judgment,
         # it is a false number in the frontmatter, and downstream budgeting reads it.
