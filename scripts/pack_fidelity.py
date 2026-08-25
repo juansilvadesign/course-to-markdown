@@ -297,6 +297,24 @@ def resolve_cite(cite: str | None, transcripts: dict[str, str]) -> str | None:
         folded = fold(stem)
         if folded.startswith(want) or want.startswith(folded) or want in folded:
             return stem
+    # A citation is often a descriptive PHRASE with the slug buried inside it
+    # ("a definicao-chave que separa ... (licao: `04-test-doubles/05-mocks`").
+    # The loop above only reads a cite that IS the stem, or contains it as a
+    # prefix -- it never tests `folded in want`, so every buried slug fell
+    # through to UNCITED while `found_in` named the very lesson cited.
+    #
+    # Longest match wins: a stem that is a substring of another ("05-mocks"
+    # inside "05-mocks-avancados") must not shadow the more specific one.
+    # The boundary guard stops "01-intro" matching inside "101-intro".
+    #
+    # This resolution is deliberately INDEPENDENT of `hosts`. Preferring the
+    # lesson a quote was found in would manufacture VERBATIM out of a genuine
+    # MISATTRIBUTION -- the gate would then be unable to fail.
+    buried = [stem for stem in transcripts
+              if re.search(rf"(?<![a-z0-9]){re.escape(fold(stem))}(?![a-z0-9])", want)]
+    if buried:
+        return max(buried, key=lambda s: len(fold(s)))
+
     # Title form: drop the numeric prefix from the stem and compare word sets.
     want_words = {w for w in re.split(r"[^a-z0-9]+", want) if len(w) > 2}
     if not want_words:
