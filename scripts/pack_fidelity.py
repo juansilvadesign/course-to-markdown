@@ -331,7 +331,90 @@ def resolve_cite(cite: str | None, transcripts: dict[str, str]) -> str | None:
     return best if best_score >= 0.6 else None
 
 
-def check_quote(quote: dict, transcripts: dict[str, str]) -> dict:
+ORDINAL_RE = re.compile(r"\b(?:li[cç][aã]o|aula|lesson)\s*0*(\d+)", re.I)
+MODULE_RE = re.compile(r"\bm[oó]dulo\s*0*(\d+)", re.I)
+# The pipeline writes `1000-` when a lesson carries no number of its own, so a
+# `1000-` stem means "unnumbered", NOT "lesson one thousand".
+UNNUMBERED = "1000"
+
+
+def _manifest_order(course_dir: Path) -> list[str]:
+    """Lesson keys in CURRICULUM order, from the parallel input/ tree.
+
+    manifest.json is the only ordering authority: filename sort puts `01-` ahead
+    of `1000-`, which is the opposite of the real order in a mixed course.
+    """
+    parts = list(course_dir.parts)
+    if "output" not in parts:
+        return []
+    parts[parts.index("output")] = "input"
+    manifest = Path(*parts) / "manifest.json"
+    if not manifest.is_file():
+        return []
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return list(data.get("lessons", {}))
+
+
+def resolve_ordinal(cite: str, course_dir: Path,
+                    transcripts: dict[str, str]) -> str | None:
+    """Resolve "Lição 5" / "Módulo 2, aula 01" to a lesson stem.
+
+    ⛔ Resolves ONLY where the answer is forced. A wrong answer here is worse
+    than none: it turns a compliant quote into a MISATTRIBUTED alarm, in the one
+    gate whose job is spotting false attribution. Measured on the real corpus, a
+    naive "ordinal N -> prefix N" rule was wrong on 1 of 12 -- `Lição 1` in a
+    course whose first lesson is `1000-…` while an `01-…` exists in a LATER
+    module. Hence: forced, or refuse.
+    """
+    om = ORDINAL_RE.search(cite or "")
+    if not om:
+        return None
+    n = int(om.group(1))
+    keys = [k for k in _manifest_order(course_dir)
+            if k.split("/")[-1] in transcripts]
+    if not keys:
+        return None
+    stems = [k.split("/")[-1] for k in keys]
+
+    def prefix_of(stem: str) -> str | None:
+        m = re.match(r"(\d+)-", stem)
+        return m.group(1) if m else None
+
+    # Rule A -- the citation names its module, which is what makes a repeated
+    # lesson number unambiguous.
+    mm = MODULE_RE.search(cite)
+    if mm:
+        want_mod = int(mm.group(1))
+        scoped = [k for k in keys
+                  if (pm := re.match(r"0*(\d+)", k.split("/")[0]))
+                  and int(pm.group(1)) == want_mod]
+        hits = [k.split("/")[-1] for k in scoped
+                if (pf := prefix_of(k.split("/")[-1])) and int(pf) == n]
+        return hits[0] if len(hits) == 1 else None
+
+    # Rule B -- no unnumbered lesson anywhere, so a numeric prefix IS the
+    # lesson number; accept only when exactly one lesson carries it.
+    if not any(prefix_of(st) == UNNUMBERED for st in stems):
+        hits = [st for st in stems if (pf := prefix_of(st)) and int(pf) == n]
+        if len(hits) == 1:
+            return hits[0]
+        return None
+
+    # Rule C -- EVERY lesson is unnumbered, so manifest position is the only
+    # thing an ordinal can mean.
+    if all(prefix_of(st) == UNNUMBERED for st in stems):
+        return stems[n - 1] if 1 <= n <= len(stems) else None
+
+    # Mixed numbering (some `1000-`, some numbered): position and prefix
+    # disagree and nothing decides between them. Refuse.
+    return None
+
+
+def check_quote(quote: dict, transcripts: dict[str, str],
+                course_dir: Path | None = None) -> dict:
     """Locate a quote's fragments in the corpus and grade the attribution."""
     fragments = [f for f in split_quote(quote["text"]) if f]
     if not fragments:
@@ -355,6 +438,8 @@ def check_quote(quote: dict, transcripts: dict[str, str]) -> dict:
                      **best_fuzzy_window(missing[0], transcripts)}
 
     cited = resolve_cite(quote["cite"], transcripts)
+    if cited is None and quote["cite"] and course_dir is not None:
+        cited = resolve_ordinal(quote["cite"], course_dir, transcripts)
 
     if missing:
         # A passage that is clearly the same sentence with a word changed was
@@ -383,6 +468,11 @@ def check_quote(quote: dict, transcripts: dict[str, str]) -> dict:
         verdict = "VERBATIM"
     elif cited:
         verdict = "MISATTRIBUTED"
+    elif quote["cite"]:
+        # The pack DID give a location; we just cannot resolve it. That is a
+        # contract nit, not a fabrication signal, and conflating the two is what
+        # made compliant packs read as a wave of alarms.
+        verdict = "UNRESOLVED_CITE"
     else:
         verdict = "UNCITED"
 
@@ -493,7 +583,7 @@ def audit_course(course_dir: Path, pack_glob: str, v1_diff: bool) -> dict:
     for pack in packs:
         text = pack.read_text(encoding="utf-8", errors="replace")
         for q in parse_quotes(text):
-            quotes.append({**check_quote(q, transcripts), "pack": pack.name})
+            quotes.append({**check_quote(q, transcripts, course_dir), "pack": pack.name})
         measurements.append(measure(pack))
 
     terms = subject_terms(course_dir, transcripts)
@@ -544,7 +634,10 @@ def render(res: dict) -> None:
 
     q = res["gate_q"]
     counts = q["by_verdict"]
-    # UNCITED and WEAK_MATCH are bookkeeping, not fidelity defects.
+    # UNCITED, UNRESOLVED_CITE and WEAK_MATCH are bookkeeping, not fidelity
+    # defects. UNCITED means NO location reference was given (a §5.4 FAIL);
+    # UNRESOLVED_CITE means one was given that we cannot machine-resolve --
+    # a contract nit. Conflating the two read as mass fabrication alarms.
     bad = sum(counts.get(k, 0) for k in ("NOT_FOUND", "REWORDED", "STITCHED",
                                          "MISATTRIBUTED", "INCONCLUSIVE"))
     flag = "FLAG" if bad else "ok  "

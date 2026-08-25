@@ -15,9 +15,13 @@ who touches the resolver re-proves it in one command.
 """
 from __future__ import annotations
 
+import json
+import pathlib
+import tempfile
 import unittest
 
-from scripts.pack_fidelity import check_quote, normalize, resolve_cite
+from scripts.pack_fidelity import (check_quote, normalize, resolve_cite,
+                                   resolve_ordinal)
 
 # A synthetic course. `05-mocks` is a strict prefix of `05-mocks-avancados`,
 # which is the shadowing case the longest-match rule exists for.
@@ -108,3 +112,103 @@ class MatchPrecision(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --------------------------------------------------------------- ordinals
+
+def _course(tmp: pathlib.Path, layout: dict[str, list[str]]) -> pathlib.Path:
+    """Build output/ transcripts + the input/ manifest that orders them."""
+    course = tmp / "output" / "jstack-lives" / "curso"
+    keys = []
+    for module, lessons in layout.items():
+        for lesson in lessons:
+            (course / module).mkdir(parents=True, exist_ok=True)
+            (course / module / f"{lesson}.transcript.txt").write_text(
+                "conteudo da aula", encoding="utf-8")
+            keys.append(f"{module}/{lesson}")
+    manifest = tmp / "input" / "jstack-lives" / "curso"
+    manifest.mkdir(parents=True, exist_ok=True)
+    (manifest / "manifest.json").write_text(
+        json.dumps({"lessons": {k: {"status": "done"} for k in keys}}),
+        encoding="utf-8")
+    return course
+
+
+# The real shape that broke the naive resolver: module 1 unnumbered, module 2
+# numbered, so `01-…` exists but is NOT the first lesson.
+MIXED = {"01-configurando": ["1000-o-que-e-e-por-que-usar",
+                             "1000-configurando-a-identity"],
+         "02-com-anexo": ["01-conhecendo-o-formato-mime",
+                          "05-simplificando-com-o-nodemailer"]}
+
+
+class OrdinalResolution(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _t(self, course):
+        return {p.name.removesuffix(".transcript.txt"): normalize("conteudo da aula")
+                for p in course.rglob("*.transcript.txt")}
+
+    def test_mixed_numbering_REFUSES_rather_than_guessing(self):
+        # THE load-bearing leg. Measured on the real corpus, a naive
+        # "ordinal N -> prefix N" rule answered `01-conhecendo-o-formato-mime`
+        # here; the quote actually lives in `1000-o-que-e-e-por-que-usar`.
+        # A wrong answer flips a compliant quote to MISATTRIBUTED, so refusing
+        # is the only safe outcome when position and prefix disagree.
+        course = _course(self.tmp, MIXED)
+        got = resolve_ordinal("Lição 1", course, self._t(course))
+        self.assertIsNone(got)
+        self.assertNotEqual(got, "01-conhecendo-o-formato-mime")
+
+    def test_module_qualifier_disambiguates_a_repeated_number(self):
+        course = _course(self.tmp, {"01-um": ["01-alpha", "02-beta"],
+                                    "02-dois": ["01-gamma", "02-delta"]})
+        t = self._t(course)
+        self.assertEqual(resolve_ordinal("(Módulo 2, aula 01", course, t), "01-gamma")
+        self.assertEqual(resolve_ordinal("(Módulo 1, aula 02", course, t), "02-beta")
+
+    def test_unique_prefix_resolves_when_nothing_is_unnumbered(self):
+        course = _course(self.tmp, {"01-um": ["01-alpha", "02-beta", "03-gamma"]})
+        self.assertEqual(resolve_ordinal("lição 03", course, self._t(course)), "03-gamma")
+
+    def test_repeated_number_without_a_module_qualifier_refuses(self):
+        course = _course(self.tmp, {"01-um": ["07-alpha"], "02-dois": ["07-beta"]})
+        self.assertIsNone(resolve_ordinal("aula 07", course, self._t(course)))
+
+    def test_all_unnumbered_uses_manifest_POSITION_not_filename_sort(self):
+        # Every lesson is `1000-`, so position is the only possible referent.
+        # Filename sort would order these alphabetically -- manifest order is
+        # the authority, and here the two disagree.
+        course = _course(self.tmp, {"01-um": ["1000-zebra", "1000-alpha"]})
+        t = self._t(course)
+        self.assertEqual(resolve_ordinal("Lição 1", course, t), "1000-zebra")
+        self.assertEqual(resolve_ordinal("Lição 2", course, t), "1000-alpha")
+
+    def test_out_of_range_and_absent_ordinals_refuse(self):
+        course = _course(self.tmp, {"01-um": ["1000-a", "1000-b"]})
+        t = self._t(course)
+        self.assertIsNone(resolve_ordinal("Lição 99", course, t))
+        self.assertIsNone(resolve_ordinal("uma frase sem ordinal", course, t))
+
+    def test_missing_manifest_degrades_to_refusal(self):
+        course = _course(self.tmp, {"01-um": ["01-alpha"]})
+        (self.tmp / "input" / "jstack-lives" / "curso" / "manifest.json").unlink()
+        self.assertIsNone(resolve_ordinal("lição 01", course, self._t(course)))
+
+
+class UnresolvedIsNotUncited(unittest.TestCase):
+    """A reference we cannot machine-resolve is a contract nit; NO reference is
+    the §5.4 FAIL. Conflating them is what made compliant packs read as a wave
+    of fabrication alarms."""
+
+    def test_absent_reference_is_UNCITED(self):
+        quote = {"text": SAID_IN_MOCKS, "cite": None}
+        self.assertEqual(check_quote(quote, TRANSCRIPTS)["verdict"], "UNCITED")
+
+    def test_unresolvable_reference_is_UNRESOLVED_CITE(self):
+        quote = {"text": SAID_IN_MOCKS, "cite": "mantra repetido sobre spies"}
+        self.assertEqual(check_quote(quote, TRANSCRIPTS)["verdict"], "UNRESOLVED_CITE")
