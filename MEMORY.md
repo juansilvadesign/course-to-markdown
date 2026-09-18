@@ -12,13 +12,26 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
 
 > **Migrated out of the global memory router 2026-08-16.** The router keeps a one-line stub pointing here; ⛔ new detail lands in this file, not in the router. The forbidden-path incident itself is documented at length in [`CLAUDE.md`](CLAUDE.md) § *Common mistakes* — this block is only the open state.
 
-## ▶ Resume (checkpoint 2026-08-25f)
-- **Project:** `knowledge/projects/course-to-markdown` (submodule; ⚠️ **public** — technical state only here)
-- **Doing:** Stage-2 recompile of the held courses under the corrected contract. ✅ **Batch 1 closed 4/4** · ✅ **Gate Q repaired end-to-end** (buried-slug extractor + manifest-backed ordinal resolver + the `UNCITED`/`UNRESOLVED_CITE` split), **18 legs mutation-proven** in `tests/test_pack_fidelity_gateq.py` · ✅ **7 courses compiled today**, every one `0 flags`. Full write-up in `TASKS.md` §5.7 — ⛔ read it there, not here.
-- **Next step:** **Dispatch the next courses from the HELD 36** (⛔ *not* by "has no v2 pack" — that filter includes the 9 already-promoted `promotable-9`). Cheapest genuine entry: `deploy-de-apps-react-para-producao-na-aws` (29.5k, 9 aulas, in `hold-9`). Held = 7 `hold-9` + 29 coverage-fails ≈ **1,960k tok**; only 3 exceed the proven 87.0k ceiling (`prisma-orm` 94.0 · `multi-tenant` 88.9 · `introducao-a-aws` 87.7).
-- **Key paths / IDs:** `TASKS.md` §5.7 (this session's full record) · `scripts/pack_fidelity.py` (`resolve_cite` / `resolve_ordinal` / Gate T) · `tests/test_pack_fidelity_gateq.py` · `knowledge/backups/course-to-markdown/evidence/{hold-9,promotable-9}.txt` · `scripts/promote_packs.py --only FILE`
-- **Open / blockers:** (1) **29** courses still failing coverage + **7** on quote provenance = the held 36. (2) **6** genuine `UNCITED` (no reference at all) across `esqueca-os-orms`, `filas-na-aws`, `modelando-tabelas-no-dynamodb` — all **located**, so ⛔ **do not back-fill from `found_in`** (a citation derived from the match can never disagree with it); recompile those 3 instead. (3) **8** `UNRESOLVED_CITE` — cited but unresolvable; a contract nit, not a fidelity defect. (4) §5.5's 3 term-loss lessons — the only work the kept media serves. (5) 🔴 `react-server-actions` lesson 04 is **permanently** corrupted (751 CJK chars, tail ~25%; media deleted 08-23). Corpus-wide only **2 of 1,084** transcripts affected.
-- **Don't forget:** ⛔ Assert the **literal date** in every agent prompt (`compiled: <date>`), never "today from your context". ⛔ Packs go at the **COURSE ROOT** as `<slug>.pack.v2.md` — `agent.md` step 5 is fixed, but verify. ⛔ Never overwrite a v1 `.pack.md` (preserved evidence). ⛔ Size with `len(text)/3.7` (**characters**) — `wc -c` is bytes and runs 3.5% high. ⛔ Agents cannot measure `tokens_estimate`; correct it from Gate T. ⛔ Shard only above **~87k** (87.0k passed, 128k killed an agent) and always require the one-pass `offset`/`limit` read discipline. ⛔ The disk is ground truth — an agent reporting failure may already have written its pack.
+## ▶ Resume (checkpoint 2026-09-18b)
+- **Project:** `knowledge/projects/course-to-markdown` (submodule; ⚠️ **public**, so technical state only here)
+- **Doing:** Stage-2 recompile of the held courses under the corrected contract (`TASKS.md` §5.7). **17 held**, re-derived from the coverage gate on 2026-09-18b. ✅ The three gate-reporting decisions are shipped:
+  - Gate S prints `[skip]` over an empty subject-term list instead of `[ok]`.
+  - Gate Q grades every quote-list marker (`-` `*` `>` `1.`), flags non-dash and unparsed entries, and reads `[skip]` when a pack has no Quotes section.
+  - `(cleaned)` now means an interior edit only.
+  - ⛔ Read the full record in §5.7, not here.
+- **Next step:** the next three cheapest held courses, preflighted in the last `📋 Next three` line of §5.7.
+- **Key paths / IDs:** `TASKS.md` §5.7 / §5.8 · `scripts/pack_fidelity.py` (Q/S/T; JSON `gate_q.status` / `gate_s.status`) · `scripts/pack_coverage.py` · `tests/test_pack_fidelity_gateq.py` + `tests/test_pack_fidelity_reporting.py` (33 tests)
+- **Open / blockers:**
+  1. 17 held courses.
+  2. The Gate Q fix made **4 hard quote defects visible in already-promoted packs** (1 NOT_FOUND, 1 STITCHED, 2 MISATTRIBUTED). What to do about them is an open promotion decision.
+  3. §5.8: Gate S cannot see a substitution in any lesson that still says the subject term.
+  4. §5.5's term-loss lessons.
+- **Don't forget:**
+  - ⛔ Assert the literal date in every agent prompt.
+  - ⛔ Packs go at the COURSE ROOT, and a v1 `.pack.md` is never overwritten.
+  - ⛔ Correct `tokens_estimate` from Gate T, iterating to the fixed point.
+  - ⛔ Disk-check before respawning a "failed" agent (7 of 10 had the work on disk), and prefer resuming it with its context intact.
+  - ⛔ Coverage PASS does not prove each Curriculum line describes its own lesson.
 
 ### ✅ Batch 1 re-run 2026-08-25 — 3/4 compiled, and three lessons worth more than the packs
 
