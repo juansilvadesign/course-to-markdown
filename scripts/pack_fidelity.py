@@ -21,14 +21,19 @@ Gate Q (quote provenance).  Every entry under ``## Quotes worth keeping`` claims
     to be something a human said. That is mechanically checkable: the words are
     either in a transcript or they are not. Separates NOT_FOUND (a fabrication
     candidate) from MISATTRIBUTED (right words, wrong lesson) because those are
-    different defects with very different severity.
+    different defects with very different severity. Entries opening with ">",
+    "*" or "1." are graded like "-" ones and REPORTED as a contract nit; a line
+    that yields no quote is reported, never dropped; a pack with no Quotes
+    section reads `[skip]`, never `[ok] 0 quotes`.
 
 Gate S (subject-term dropout).  Catches the substitution class, which is the one
     corruption a v1/v2 diff structurally cannot see: a transcript that renders
     "Zustand" as "Svelte" reads perfectly and diffs clean. Its signature is not
     in the pack, it is in the transcript -- the course's own subject term appears
     in every lesson except one. Flags that lesson and lists the capitalized terms
-    unique to it as the substitution candidates.
+    unique to it as the substitution candidates. When no slug term reaches the
+    share there is nothing to track: it reads `[skip]`, never `[ok]` (18 of 69
+    courses, and the substitutions found there were caught by agents, not here).
 
 Gate T (token measurement).  Reports each pack's measured token estimate. 27 of
     29 v2 packs exceeded course.md's old ~2k cap, which was evidence the cap was
@@ -102,6 +107,18 @@ ELISION = re.compile(r"\[\s*(?:\.\.\.|…)\s*\]|\(\s*(?:\.\.\.|…)\s*\)|\.{3,}|
 # run were exactly this.
 INSERTION = re.compile(r"\[[^\]\n]*\]")
 _SPLIT_SENTINEL = "\x00"
+
+# Every list marker the corpus actually uses to open a quote entry. SKILL.md
+# prescribes "-"; the rest are graded all the same and reported as a contract
+# nit, because a quote the gate refuses to read is a quote nobody checked.
+QUOTE_MARKER = re.compile(r"^(?:[-*+]|>|\d+[.)])\s*")
+PRESCRIBED_MARKER = "-"
+
+# Verdicts that are fidelity defects. UNCITED, UNRESOLVED_CITE and WEAK_MATCH
+# are bookkeeping: UNCITED means NO location reference was given (a §5.4
+# FAIL); UNRESOLVED_CITE means one was given that we cannot machine-resolve --
+# a contract nit. Conflating the two read as mass fabrication alarms.
+FIDELITY_DEFECTS = ("NOT_FOUND", "REWORDED", "STITCHED", "MISATTRIBUTED", "INCONCLUSIVE")
 
 # Course-slug words that carry no subject signal.
 SLUG_STOPWORDS = {
@@ -186,32 +203,63 @@ def split_quote(text: str) -> list[str]:
     return [normalize(part) for part in t.split(_SPLIT_SENTINEL)]
 
 
+def _parse_quote_body(body: str) -> dict | None:
+    """One entry, marker already removed -> {text, cite}, or None if no quote."""
+    # The closing quote is the one followed by the attribution dash or the
+    # end of the line -- NOT simply the last quote character present. A
+    # greedy match swallows an attribution that itself contains quotes
+    # (e.g. ... — lesson 08, *Title* (transcript truncates it as "setVal"))
+    # and then reports the citation text as an unquotable fragment.
+    m = re.match(r"[\"“”](.+?)[\"“”]\s*(?=[—–]|$)", body)
+    if not m:
+        m = re.search(r"[\"“”](.+)[\"“”]", body)
+    if not m:
+        return None
+    tail = body[m.end():]
+    cite = None
+    cm = re.search(r"[—–-]\s*(.+?)\s*$", tail)
+    if cm:
+        cite = cm.group(1).strip().strip("().")
+    return {"text": m.group(1), "cite": cite}
+
+
+def scan_quotes(pack_text: str) -> dict:
+    """Every entry under ``## Quotes worth keeping`` AND what could not be read.
+
+    The parser once kept only "-" lines, so a pack whose entries opened with
+    ">", "*" or "1." parsed to zero quotes and printed `[ok] 0 quotes` -- a
+    clean pass -- while hiding two real MISATTRIBUTED (35 packs, 11 of them v2,
+    2026-09-18). Rejecting a non-conforming marker was right; doing it silently
+    was the bug. So every marker is now GRADED, the marker is recorded for the
+    report, and a content line that yields no quote (the truncated v1 entries
+    with no closing mark) is kept as evidence instead of being dropped.
+    """
+    has_section = any(line.strip().lower() == "## quotes worth keeping"
+                      for line in pack_text.splitlines() if line.startswith("## "))
+    quotes: list[dict] = []
+    unparsed: list[str] = []
+    markers: Counter = Counter()
+    for raw in read_section(pack_text, "## Quotes worth keeping"):
+        line = raw.strip()
+        mm = QUOTE_MARKER.match(line)
+        body = line[mm.end():].strip() if mm else line
+        if not body:
+            # A bare ">" spacer between blockquote entries is layout, not an entry.
+            continue
+        parsed = _parse_quote_body(body)
+        if parsed is None:
+            unparsed.append(line)
+            continue
+        marker = re.sub(r"\d+", "N", mm.group(0).strip()) if mm else "none"
+        markers[marker] += 1
+        quotes.append({**parsed, "marker": marker})
+    return {"section": has_section, "quotes": quotes,
+            "markers": dict(markers), "unparsed": unparsed}
+
+
 def parse_quotes(pack_text: str) -> list[dict]:
     """Pull (text, cited lesson) pairs out of ``## Quotes worth keeping``."""
-    quotes = []
-    for line in read_section(pack_text, "## Quotes worth keeping"):
-        line = line.strip()
-        if not line.startswith("-"):
-            continue
-        body = line.lstrip("-").strip()
-        # The closing quote is the one followed by the attribution dash or the
-        # end of the line -- NOT simply the last quote character present. A
-        # greedy match swallows an attribution that itself contains quotes
-        # (e.g. ... — lesson 08, *Title* (transcript truncates it as "setVal"))
-        # and then reports the citation text as an unquotable fragment.
-        m = re.match(r"[\"“”](.+?)[\"“”]\s*(?=[—–]|$)", body)
-        if not m:
-            m = re.search(r"[\"“”](.+)[\"“”]", body)
-        if not m:
-            continue
-        text = m.group(1)
-        tail = body[m.end():]
-        cite = None
-        cm = re.search(r"[—–-]\s*(.+?)\s*$", tail)
-        if cm:
-            cite = cm.group(1).strip().strip("().")
-        quotes.append({"text": text, "cite": cite})
-    return quotes
+    return scan_quotes(pack_text)["quotes"]
 
 
 def best_fuzzy_window(fragment: str, transcripts: dict[str, str]) -> dict:
@@ -566,6 +614,42 @@ def measure(pack_path: Path) -> dict:
     }
 
 
+# ---------------------------------------------------------------- status
+
+# A gate that cannot see its artifact must SAY so. Both gates used to print
+# `[ok]` over nothing: Gate S over an empty subject-term list (18 of 69
+# courses), Gate Q over a quote section it had parsed to zero entries. So
+# `ok` now requires that something was actually checked; `skip` means the gate
+# could not run at all, and says why in the report line.
+
+def gate_q_status(gate_q: dict) -> str:
+    """FLAG / skip / note / ok. Never `ok` over quotes it could not read."""
+    counts = gate_q["by_verdict"]
+    if any(counts.get(k, 0) for k in FIDELITY_DEFECTS):
+        return "FLAG"
+    packs = gate_q.get("packs", [])
+    if any(p["unparsed"] or set(p["markers"]) - {PRESCRIBED_MARKER} for p in packs):
+        return "FLAG"
+    if packs and not any(p["section"] for p in packs):
+        return "skip"
+    if any(not p["section"] for p in packs):
+        # One half of a sharded pair lacks the section: the other half's
+        # quotes are no evidence about it.
+        return "FLAG"
+    if gate_q["total"] == 0:
+        return "note"
+    return "ok"
+
+
+def gate_s_status(gate_s: dict) -> str:
+    """FLAG / skip / note / ok. `skip` when no subject term existed to track."""
+    if not gate_s["subject_terms"]:
+        return "skip"
+    if any(f["substitution_candidates"] for f in gate_s["findings"]):
+        return "FLAG"
+    return "note" if gate_s["findings"] else "ok"
+
+
 # ---------------------------------------------------------------- driver
 
 def audit_course(course_dir: Path, pack_glob: str, v1_diff: bool) -> dict:
@@ -579,27 +663,38 @@ def audit_course(course_dir: Path, pack_glob: str, v1_diff: bool) -> dict:
         return {"course": course_dir.name, "error": "no transcripts found"}
 
     quotes: list[dict] = []
+    scans: list[dict] = []
     measurements: list[dict] = []
     for pack in packs:
         text = pack.read_text(encoding="utf-8", errors="replace")
-        for q in parse_quotes(text):
+        scan = scan_quotes(text)
+        scans.append({"pack": pack.name, "section": scan["section"],
+                      "entries": len(scan["quotes"]), "markers": scan["markers"],
+                      "unparsed": scan["unparsed"]})
+        for q in scan["quotes"]:
             quotes.append({**check_quote(q, transcripts, course_dir), "pack": pack.name})
         measurements.append(measure(pack))
 
     terms = subject_terms(course_dir, transcripts)
+    gate_q = {
+        "total": len(quotes),
+        "by_verdict": dict(Counter(q["verdict"] for q in quotes)),
+        "quotes": quotes,
+        "packs": scans,
+    }
+    gate_s = {
+        "subject_terms": terms,
+        "findings": subject_dropout(transcripts, raw, terms),
+    }
+    # Machine-readable status, so no consumer has to parse the prose report.
+    gate_q["status"] = gate_q_status(gate_q)
+    gate_s["status"] = gate_s_status(gate_s)
     result = {
         "course": course_dir.name,
         "lessons": len(transcripts),
         "packs": [p.name for p in packs],
-        "gate_q": {
-            "total": len(quotes),
-            "by_verdict": dict(Counter(q["verdict"] for q in quotes)),
-            "quotes": quotes,
-        },
-        "gate_s": {
-            "subject_terms": terms,
-            "findings": subject_dropout(transcripts, raw, terms),
-        },
+        "gate_q": gate_q,
+        "gate_s": gate_s,
         "gate_t": measurements,
     }
 
@@ -634,16 +729,25 @@ def render(res: dict) -> None:
 
     q = res["gate_q"]
     counts = q["by_verdict"]
-    # UNCITED, UNRESOLVED_CITE and WEAK_MATCH are bookkeeping, not fidelity
-    # defects. UNCITED means NO location reference was given (a §5.4 FAIL);
-    # UNRESOLVED_CITE means one was given that we cannot machine-resolve --
-    # a contract nit. Conflating the two read as mass fabrication alarms.
-    bad = sum(counts.get(k, 0) for k in ("NOT_FOUND", "REWORDED", "STITCHED",
-                                         "MISATTRIBUTED", "INCONCLUSIVE"))
-    flag = "FLAG" if bad else "ok  "
     print(f"\n=== {res['course']}  ({res['lessons']} lessons, {len(res['packs'])} pack file(s))")
-    print(f"  Gate Q  [{flag}] {q['total']} quotes -> " +
+    print(f"  Gate Q  [{gate_q_status(q):4s}] {q['total']} quotes -> " +
           ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    for p in q.get("packs", []):
+        if not p["section"]:
+            print(f"       - {p['pack']}: no '## Quotes worth keeping' section "
+                  f"-- quotes NOT checked")
+            continue
+        off = {m: n for m, n in p["markers"].items() if m != PRESCRIBED_MARKER}
+        if off:
+            n = sum(off.values())
+            print(f"       - {p['pack']}: {n} entr{'y uses' if n == 1 else 'ies use'} a "
+                  f"non-dash marker ({', '.join(repr(m) for m in off)}) "
+                  f"-- contract nit, SKILL.md prescribes '-'")
+        if p["unparsed"]:
+            print(f"       - {p['pack']}: {len(p['unparsed'])} line(s) in the section "
+                  f"yielded NO quote, e.g. {p['unparsed'][0][:72]!r}")
+        if not p["entries"] and not p["unparsed"]:
+            print(f"       - {p['pack']}: the section is empty")
     for item in q["quotes"]:
         if item["verdict"] == "VERBATIM":
             continue
@@ -658,10 +762,13 @@ def render(res: dict) -> None:
 
     s = res["gate_s"]
     strong = [f for f in s["findings"] if f["substitution_candidates"]]
-    sflag = "FLAG" if strong else ("note" if s["findings"] else "ok  ")
-    print(f"  Gate S  [{sflag}] subject terms {s['subject_terms']} "
-          f"({len(strong)} with a repeated near-unique candidate, "
-          f"{len(s['findings']) - len(strong)} bare)")
+    if gate_s_status(s) == "skip":
+        print(f"  Gate S  [skip] no subject term met the {SUBJECT_TERM_MIN_SHARE} share "
+              f"-- substitution NOT checked on this course")
+    else:
+        print(f"  Gate S  [{gate_s_status(s):4s}] subject terms {s['subject_terms']} "
+              f"({len(strong)} with a repeated near-unique candidate, "
+              f"{len(s['findings']) - len(strong)} bare)")
     for f in s["findings"]:
         if not f["substitution_candidates"]:
             continue
@@ -713,10 +820,22 @@ def main() -> int:
                              encoding="utf-8")
         print(f"\nJSON -> {args.json}")
 
-    flagged = [r for r in results if "error" not in r and (
+    audited = [r for r in results if "error" not in r]
+    flagged = [r for r in audited if (
         any(qq["verdict"] != "VERBATIM" for qq in r["gate_q"]["quotes"])
+        or gate_q_status(r["gate_q"]) == "FLAG"
         or r["gate_s"]["findings"])]
     print(f"\n{len(results)} course(s) audited, {len(flagged)} carrying at least one flag.")
+    # Printed apart from the flag count: a gate that could not run is neither
+    # a pass nor a defect, and folding it into either total hides it.
+    s_skip = [r for r in audited if gate_s_status(r["gate_s"]) == "skip"]
+    q_skip = [r for r in audited if gate_q_status(r["gate_q"]) == "skip"]
+    if s_skip:
+        print(f"Gate S could NOT run on {len(s_skip)} course(s) (no subject term) "
+              f"-- substitution unchecked there.")
+    if q_skip:
+        print(f"Gate Q could NOT run on {len(q_skip)} course(s) (no Quotes section) "
+              f"-- quotes unchecked there.")
     print("This is EVIDENCE, not a verdict. Promotion is a human decision (5.4).")
     return 0
 
