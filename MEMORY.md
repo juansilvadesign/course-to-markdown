@@ -20,7 +20,7 @@ Turns owned course videos into `knowledge-compiler` packs. Built 2026-06-19 (MVP
   - `(cleaned)` now means an interior edit only.
   - ⛔ Read the full record in §5.7, not here.
 - **Next step:** the next three cheapest held courses, preflighted in the last `📋 Next three` line of §5.7.
-- **Key paths / IDs:** `TASKS.md` §5.7 / §5.8 · `scripts/pack_fidelity.py` (Q/S/T; JSON `gate_q.status` / `gate_s.status`) · `scripts/pack_coverage.py` · `tests/test_pack_fidelity_gateq.py` + `tests/test_pack_fidelity_reporting.py` (33 tests)
+- **Key paths / IDs:** `TASKS.md` §5.7 / §5.8 · `scripts/pack_fidelity.py` (Q/S/T; JSON `gate_q.status` / `gate_s.status`) · `scripts/pack_coverage.py` · `tests/test_pack_fidelity_gateq.py` + `tests/test_pack_fidelity_reporting.py` (33 tests) · Stage-2 instruments `scripts/{verify_batch,quote_check,span_check,tokens_fixpoint,held_cohort,preflight_courses,lesson_table}.py` (see the Commands block in `CLAUDE.md`)
 - **Open / blockers:**
   1. 17 held courses.
   2. The Gate Q fix made **4 hard quote defects visible in already-promoted packs** (1 NOT_FOUND, 1 STITCHED, 2 MISATTRIBUTED). What to do about them is an open promotion decision.

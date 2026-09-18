@@ -76,7 +76,17 @@ PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 
 .venv/bin/python scripts/jargon_audit.py output/<c>/<l>.transcript.txt --reference <other-provider>.transcript.txt
 .venv/bin/python main.py input/ --dry-run                              # audio + report, no API
 .venv/bin/python -c "import course_to_markdown.pipeline"               # import smoke check
-.venv/bin/python -m unittest discover -s tests -v                      # downloader safety/contracts
+.venv/bin/python -m unittest discover -s tests -v                      # downloader contracts + fidelity-gate legs
+# Stage 2 (TASKS.md §5.7): select -> preflight -> dispatch -> verify
+.venv/bin/python scripts/pack_coverage.py output/jstack-lives --pack-glob '*.pack.md' > cov_v1.txt  # coverage gate
+.venv/bin/python scripts/held_cohort.py cov_v1.txt                      # held = coverage FAILs with no v2 yet
+.venv/bin/python scripts/preflight_courses.py <course> [...]            # order / CJK / Gate S terms / v1 hash
+.venv/bin/python scripts/lesson_table.py <course> [...]                 # manifest-ordered lesson table for the prompt
+.venv/bin/python scripts/pack_fidelity.py output/jstack-lives/<course>  # Gate Q (quotes) / S (substitution) / T (tokens)
+.venv/bin/python scripts/verify_batch.py <course> --dispatch <ISO> --v1-baseline v1.txt  # disk + contract, post-dispatch
+.venv/bin/python scripts/quote_check.py output/jstack-lives/<course>    # exact-substring quote diff (Gate Q's second opinion)
+.venv/bin/python scripts/span_check.py output/jstack-lives/<course>     # does each Curriculum line describe ITS lesson?
+.venv/bin/python scripts/tokens_fixpoint.py <pack.v2.md>                # tokens_estimate to its fixed point
 ```
 
 Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). A Gemini response with a non-`STOP` finish reason or an exact 8-word sequence repeated 50+ times is an error and is never saved as a successful transcript; retry the lesson with shorter chunk env values plus `--retranscribe`. Run long batches in the background and watch `.logs/transcribe.log`.
