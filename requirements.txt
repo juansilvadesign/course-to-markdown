@@ -12,3 +12,6 @@ python-dotenv>=1.0.0
 #   httpx: API/JSON + direct-file streaming. yt-dlp: HLS/DASH/embed video (needs ffmpeg).
 httpx>=0.27
 yt-dlp>=2025.1.1
+
+# Book lane — scripts/split_book.py reads a PDF's text layer (a .txt book needs nothing).
+pypdfium2>=4.30
