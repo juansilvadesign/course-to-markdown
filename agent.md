@@ -34,7 +34,7 @@ The **parallel `input/` tree** (the same path with `/output/` → `/input/`) hol
    - Frontmatter: `title, author, type: course, domain, source, compiled, tokens_estimate`.
      - `author`: take it from the **course metadata**, never inferred from the transcripts. Read the course-root `00-*.description.md` in the parallel `input/` tree (see Input) and use its `**Autor(es):**` value. If no authoritative author is found, use the platform/publisher name or `Unknown` — do **not** infer a person's name from the audio. ASR name mentions are unreliable: spelling varies, and a name spoken in a lesson is usually sample data (`{ name: "Ana" }`) or the instructor being addressed, not a verified byline.
      - `title`: build from the course + module names (accurate to the source — a short descriptive subtitle is fine, but don't rename the course or module).
-     - `domain`: infer the best fit (`coding | design | marketing`) from the content; if ambiguous, pick the closest and flag it in your report.
+     - `domain`: infer the best fit (`coding | design | marketing | sales | photography | productivity`) from the content; if ambiguous, pick the closest and flag it in your report.
      - `source`: the module folder path (repo-relative).
      - `compiled`: today's date from the session context — **never invent a date**.
    - Body: `## TL;DR` → `## Core ideas` → `## Curriculum` (one line per lesson: *title — key concept. Exercise: verb + object*) → `## Capabilities unlocked` (verb-led) → `## Frameworks / models` → `## Quotes worth keeping` (sparing) → `## How to apply` → `## See also`.

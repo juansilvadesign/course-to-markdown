@@ -8,13 +8,17 @@ You do **not** write the pack. Fidelity beats polish: a missing idea is recovera
 One folder `knowledge/projects/course-to-markdown/output/books/<slug>/` holding one `<id>.transcript.txt`
 per chapter and a `chapters.json` listing the ids and titles **in book order**.
 
-- Read **every** chapter file listed in `chapters.json`, completely, in that order, **before** writing.
-  Never digest from a partial read.
+- Read the chapter files listed in `chapters.json` in that order. Read each one **completely** before
+  writing its section: never digest from a partial read.
+- **Save as you go.** After each chapter, rewrite `digest.md` with that chapter's `### <id>` section added,
+  so an interrupted run keeps every chapter it finished. Write `## Whole book` last, once every chapter is in.
 - `front-matter` is for bibliographic data only — do not digest its content.
 
 ## Output
 
-Write `knowledge/projects/course-to-markdown/output/books/<slug>/digest.md` (overwrite if it exists), in exactly this shape:
+Write `knowledge/projects/course-to-markdown/output/books/<slug>/digest.md` in exactly this shape. If it already holds
+chapter sections from an interrupted run, keep them and continue from the first chapter that is missing;
+otherwise start it fresh.
 
 ```markdown
 ---
