@@ -141,6 +141,28 @@ Once transcripts exist, ask your Claude Code session to compile. It will:
 
 The agent is registered at `.claude/agents/course-module-compiler.md` (→ `agent.md` here). Stage 2 spends **no** API quota — only the Claude subscription.
 
+## Books — split, digest, compile
+
+A book skips Stages 0 and 1: it arrives in `input/books/` as a `.txt`, or as a `.pdf` with a text layer (convert other formats to `.txt` first). It then follows `knowledge-compiler`'s `book.md` in four steps.
+
+1. **Split** it into one file per section:
+   ```bash
+   .venv/bin/python scripts/split_book.py "input/books/<book>.pdf" --slug <slug> --dry-run   # read the plan
+   .venv/bin/python scripts/split_book.py "input/books/<book>.pdf" --slug <slug>             # write it
+   ```
+   It writes `output/books/<slug>/<id>.transcript.txt` (`front-matter`, `intro`, `ch01`…) plus `chapters.json`. Headings are detected, not configured, and a table of contents is told apart from the chapters it lists. The splitter **refuses** a split it can't trust and says why. The two usual fixes are `--end-at '<first line after the book>'` (publisher ads with no heading of their own) and `--front-extra '<first line>' '<ISBN line>'` (a copyright page printed at the back). Chapters keep the `.transcript.txt` suffix on purpose: `quote_check.py` resolves `— ch03` against `ch03.transcript.txt`.
+2. **Digest (Pass 1):** a cheaper reader writes `output/books/<slug>/digest.md` following [`scripts/DIGEST-BRIEF.md`](scripts/DIGEST-BRIEF.md). Then check every quote it copied:
+   ```bash
+   .venv/bin/python scripts/digest_quote_check.py output/books/<slug>
+   ```
+3. **Compile (Pass 2):** Claude writes the staged pack `output/books/<slug>/<slug>.pack.md` from the digest plus targeted checks against the chapter files, then grades the pack's quotes:
+   ```bash
+   .venv/bin/python scripts/digest_quote_check.py output/books/<slug> '*.pack.md'
+   ```
+4. **Verify and promote:** the `knowledge-pack-verifier` agent grades the pack, and you promote it into `knowledge/<domain>/books/`.
+
+Book text stays in the gitignored `input/` and `output/`, like course media: this repository is public.
+
 ## Notes & limits
 
 - Lessons longer than 15 minutes are automatically split into ~10-minute transcription chunks, then concatenated.
@@ -163,8 +185,11 @@ course-to-markdown/
     transcribe.py  formatter.py  pipeline.py
   input/                        # drop the course here (gitignored)
   output/                       # transcripts + staged packs land here, structure mirrored (gitignored)
-  tests/                        # offline downloader contract/safety tests
+  tests/                        # offline tests: downloader contracts, fidelity gates, book lane
   scripts/transcribe_batches.py # bounded, non-overlapping Stage-1 course fan-out
+  scripts/split_book.py         # book lane: .txt/.pdf -> one <id>.transcript.txt per section
+  scripts/DIGEST-BRIEF.md       # book lane: the Pass-1 digest contract for the reader
+  scripts/digest_quote_check.py # book lane: exact-quote gate for digests and book packs
   requirements.txt  .env.example
 ```
 

@@ -330,6 +330,15 @@ Standing rules that outlived the checkpoint: media and transcripts are the sourc
     - ⭐ **2026-09-18b widened the scope: the blindness is NOT confined to the vacuous courses.** Gate S inspects only lessons that *lack* the subject term, so this batch's substitutions were invisible in courses where it runs: `DSai` ×4 for GSI and `BIMx` for DAX (DynamoDB, term `custo`), `chakra` ×2 / `ChatCN` for shadcn (S3, term `upload`), and `/alf` for `/auth` (RBAC, term `cognito`; 4 lessons in 3 courses). The detector should scan **every** lesson, and these join the known-bad set.
 ---
 
+## Book lane (opened 2026-09-23)
+
+Books skip Stages 0–1. The method (README → Books; `knowledge-compiler/book.md`): **split** (`scripts/split_book.py`) → **digest**, Pass 1, written by a cheaper reader from `scripts/DIGEST-BRIEF.md` → **pack**, Pass 2, written by Claude from the digest plus targeted checks against the chapters → `knowledge-pack-verifier` → human promotion.
+
+- [x] **2026-09-23: the first three books compiled and promoted.** 21/21 pack quotes and 170/170 digest quotes EXACT.
+- [x] **2026-09-23: the book tools are versioned.** `DIGEST-BRIEF.md` and `digest_quote_check.py` lived only in the gitignored `output/books/`. The digest gate now reports a quote line it can't parse as `UNPARSED` instead of skipping it (11 tests, 11/11 source mutations killed).
+- [x] **2026-09-23: `split_book.py` rewritten as a generic tool.** The original, hard-coded per book, was lost with a session scratchpad. Re-splitting the three books reproduces 51 of their 52 chapter files byte for byte; the 52nd exposed a defect of the old splitter (one book's Introduction merged into its Foreword). 28 tests, 22/22 source mutations killed.
+- [ ] **Next book:** run the four steps as documented, with no rebuilding. Note here any flag the book needed (`--end-at`, `--front-extra`, `--ignore-heading`), so the detection rules can learn from it.
+
 ## Cross-cutting checklist
 
 - [ ] Process only content the user is entitled to access and permitted to retain offline.

@@ -8,12 +8,12 @@ Order: `CODEX.md`/`CLAUDE.md` → `TASKS.md` → `CONTEXT.md` → `MEMORY.md` (s
 
 ## Product in one paragraph
 
-A three-stage path that turns courses the user is entitled to use into knowledge-compiler packs. **Stage 0** (`downloaders/`) uses exported browser sessions to enumerate and resumably acquire JStack, DesignBoost, or Skool media as transcription-ready `.m4a`, while redacting secrets and refusing DRM. **Stage 1** (`main.py`, Python) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `xiaomi/mimo-v2.5` via OpenRouter by default (or `gemini-2.5-flash`, or Groq Whisper — `--provider {openrouter,gemini,groq}`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles staged packs via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`.
+A three-stage path that turns courses the user is entitled to use into knowledge-compiler packs. **Stage 0** (`downloaders/`) uses exported browser sessions to enumerate and resumably acquire JStack, DesignBoost, or Skool media as transcription-ready `.m4a`, while redacting secrets and refusing DRM. **Stage 1** (`main.py`, Python) recurses `input/`, extracts audio with ffmpeg, chunks long lessons, transcribes with `xiaomi/mimo-v2.5` via OpenRouter by default (or `gemini-2.5-flash`, or Groq Whisper — `--provider {openrouter,gemini,groq}`), and mirrors the folder tree into `output/<…>/<lesson>.transcript.txt`. **Stage 2** (the `course-module-compiler` agent, on the Claude subscription — *not* the API) compiles staged packs via the `knowledge-compiler` `course.md` playbook, for human review before promotion to `knowledge/<domain>/courses/`. **Books** skip Stages 0–1: `scripts/split_book.py` splits a `.txt`/`.pdf` into `output/books/<slug>/<id>.transcript.txt`, a cheaper reader writes a per-chapter digest from `scripts/DIGEST-BRIEF.md`, and Claude compiles the staged pack via `knowledge-compiler`'s `book.md` (README → Books).
 
 ## Hard rules (never violate)
 
 - **`.venv` for both test and production.** Only allowed global call: the one-time `python3 -m venv .venv`.
-- **Legitimate Stage 0 access only.** Accept the user's own Netscape cookie export; never automate credentials, broaden access, defeat platform controls, or decrypt DRM. Cookie files, signed URLs, media, and transcripts never enter Git or logs.
+- **Legitimate Stage 0 access only.** Accept the user's own Netscape cookie export; never automate credentials, broaden access, defeat platform controls, or decrypt DRM. Cookie files, signed URLs, media, transcripts, and book text never enter Git or logs.
 - **Stage 0 defaults to audio-only.** The pipeline transcribes; it does not need watch-quality video. Every new adapter needs dry-run, atomic manifest/resume, redaction, polite rate limiting, and a DRM guard.
 - **Stage 2 is Claude-subscription only — never the Gemini API.** Gemini transcribes; Claude compiles.
 - **Output mirroring is relative to the input target.** Run `main.py input/` for the whole tree. For an isolated batch, pair roots explicitly (`main.py input/<batch> -o output/<batch>`); pointing at a subfolder while leaving the default output flattens it.
@@ -87,6 +87,11 @@ PYTHONUTF8=1 .venv/bin/python -u main.py input/ --language Portuguese   # Stage 
 .venv/bin/python scripts/quote_check.py output/jstack-lives/<course>    # exact-substring quote diff (Gate Q's second opinion)
 .venv/bin/python scripts/span_check.py output/jstack-lives/<course>     # does each Curriculum line describe ITS lesson?
 .venv/bin/python scripts/tokens_fixpoint.py <pack.v2.md>                # tokens_estimate to its fixed point
+# Books (README → Books): split -> digest (Pass 1) -> pack (Pass 2) -> knowledge-pack-verifier -> promote
+.venv/bin/python scripts/split_book.py "input/books/<book>.pdf" --slug <slug> --dry-run   # plan; refuses a split it can't trust
+.venv/bin/python scripts/split_book.py "input/books/<book>.pdf" --slug <slug>             # output/books/<slug>/<id>.transcript.txt + chapters.json
+.venv/bin/python scripts/digest_quote_check.py output/books/<slug>                         # every digest quote, wherever it sits
+.venv/bin/python scripts/digest_quote_check.py output/books/<slug> '*.pack.md'             # the staged book pack's quotes
 ```
 
 Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file doesn't stop the run). A Gemini response with a non-`STOP` finish reason or an exact 8-word sequence repeated 50+ times is an error and is never saved as a successful transcript; retry the lesson with shorter chunk env values plus `--retranscribe`. Run long batches in the background and watch `.logs/transcribe.log`.
@@ -114,5 +119,6 @@ Stage 1 is idempotent (skips finished lessons) and batch-resilient (one bad file
 - Removing chunking and hitting `MAX_TOKENS` / repetition loops on long lessons.
 - **Blaming a repetition loop on the audio or the chunk size.** On OpenRouter it is **stochastic and backend-specific**: the same 540s chunk looped ~1-in-6 at `temperature: 0`, and halving to 300s looped exactly the same. Retry it (the client now does) and pin the backend — do not go hunting for a chunk size that fixes it.
 - Auto-promoting packs into `knowledge/` without human review.
+- ⛔ **Reading a quote gate's `EXACT` as proof of the SECTION.** `quote_check.py` proves a quote is in the cited *file*; a wrong split boundary makes a misattributed quote read `EXACT`. The lost book splitter merged one book's author Introduction into its guest Foreword, and a digest quote cited `— foreword` for the author's words passed clean. Chapter ids are only as good as `split_book.py`'s boundaries: read its `--dry-run` table before digesting.
 - Inventing a `compiled:` date.
 - **Telling a Stage-2 agent to take the date "from your session context" instead of stating it literally.** On 2026-08-24 a `course-module-compiler` agent received the harness's *"The date has changed… 2026-08-24"* notice **inside its Skill-tool output**, correctly recognised that shape as a prompt-injection pattern, and chose **2026-08-23** on its own. The host clock said 2026-08-24. Its caution was right; the outcome would still have been a wrong `compiled:` date. Put the literal date in the prompt — an asserted date is checkable, an inferred one varies silently across a 41-agent fan-out.

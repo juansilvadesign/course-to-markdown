@@ -161,6 +161,15 @@ Content-based coverage reconciliation, replacing the counting artifact that bles
 
 ⭐ **Validated against the known-bad corpus before being trusted**: it fails all 19 defective packs and measures them at **34% mean coverage** (median 42%, seven at 0% for having no `## Curriculum` at all) — independently reproducing the documented "22–66%, median 37%" by a different method. ⛔ **Its own limit, printed in its output: a matched curriculum line proves a lesson was not silently dropped — it does NOT prove the body was compressed faithfully.** A consistency gate is not a correctness gate; fidelity is still human review at 5.4.
 
+## Book lane (opened 2026-09-23)
+
+- **The pipeline:** `split_book.py` → digest from `DIGEST-BRIEF.md` → pack → `knowledge-pack-verifier` → promote. Commands: README → Books. Evidence: `TASKS.md` → Book lane.
+- **Chapters are `<id>.transcript.txt` on purpose.** `quote_check.py` resolves `— ch03` to `ch03.transcript.txt`, so book quotes get the course gate for free. Decided 2026-09-23: keep the suffix rather than teach every gate a second one.
+- **The splitter's text rules are the old splitter's, recovered from its output:** CRLF → LF; runs of blank lines collapse to one; PDF pages are joined with `\n`; a PDFium U+FFFE between word characters becomes `-`; CJK lines are dropped from a bilingual book. Under those rules 51 of the 52 old chapter files re-split byte for byte.
+- **How it tells a TOC from the book:** a heading whose NEXT heading-like line follows within 400 chars is a TOC entry. ⛔ The first version used a two-sided test (two neighbours within 400 chars) and merged a book's Introduction into its front matter: that heading sits right after the TOC, so the TOC's last entries counted as its neighbours.
+- ⛔ **A quote gate proves the FILE, not the SECTION.** The lost splitter had merged one book's author Introduction into its guest Foreword, and a digest quote citing `— foreword` for the author's own words graded `EXACT`. The gate was right about the file; the file was wrong about the section. Read the splitter's `--dry-run` table before digesting.
+- **Book text never enters Git** (this repo is public). The tests run on synthetic books; the byte-for-byte regression against the real books runs locally only.
+
 ## Architecture — three stages, two processing engines
 
 **Stage 0 — authenticated acquisition (Python + exported browser session).** Platform adapters under `downloaders/` enumerate legitimately accessible curricula and write transcription-ready `.m4a` plus resumable manifests under `input/`. JStack has its mature adapter; DesignBoost and Skool share `_shared.py` for Netscape-cookie parsing, redacted logging, quiet signed-URL downloads, DRM refusal, atomic manifests, and audio/video modes. Login is never automated, and working artifacts remain gitignored.
