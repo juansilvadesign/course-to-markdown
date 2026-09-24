@@ -1,4 +1,4 @@
-"""Per-Curriculum-line attribution check (orchestrator-side instrument, not committed).
+"""Per-Curriculum-line attribution check (orchestrator-side instrument; known-bad legs in tests/test_span_check.py).
 
 A Curriculum line ends with the bare stem of the lesson it describes. The coverage
 gate proves every lesson HAS a line; it cannot see a line describing ANOTHER lesson's
