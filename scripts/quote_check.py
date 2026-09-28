@@ -8,6 +8,13 @@ For each dash-marked entry in `## Quotes worth keeping`:
                 (words the speaker never said -- the synthesized-quote failure).
   NO-CITE / BAD-CITE -> the citation is missing or names no transcript in the course.
 
+An entry may carry one or more parenthetical TAGS between the closing quote and the
+attribution dash, e.g. `- "..." (Speaker) — stem` or `- "..." (Speaker) (cleaned) — stem`
+(a course with more than one speaker needs to say who said the line). A tag holds 1-40
+characters with no parentheses or quote characters, so a quote can never hide inside one.
+`(cleaned)` is still detected as the `cleaned` flag; any other tag text is recorded as the
+entry's `speaker` (a string, or None).
+
 Usage: quote_check.py <course_dir> [pack_glob]
 """
 import difflib
@@ -39,11 +46,19 @@ def quotes(pack_text):
         if not s.startswith("- "):
             out.append({"raw": s, "marker": "NON-DASH"})
             continue
-        m = re.match(r'-\s*["“](.+?)["”]\s*(\(cleaned\))?\s*(?:[—–]\s*(\S+))?\s*$', s)
+        m = re.match(
+            r'-\s*["“](.+?)["”]\s*'
+            r'((?:\([^()"“”]{1,40}\)\s*)*)'
+            r'(?:[—–]\s*(\S+))?\s*$',
+            s)
         if not m:
             out.append({"raw": s, "marker": "UNPARSED"})
             continue
-        out.append({"raw": s, "marker": "-", "text": m.group(1), "cleaned": bool(m.group(2)),
+        tags = re.findall(r'\(([^()"“”]{1,40})\)', m.group(2))
+        cleaned = "cleaned" in tags
+        speaker = next((t for t in tags if t != "cleaned"), None)
+        out.append({"raw": s, "marker": "-", "text": m.group(1), "cleaned": cleaned,
+                    "speaker": speaker,
                     "cite": unicodedata.normalize("NFC", m.group(3)) if m.group(3) else None})
     return out
 
@@ -82,7 +97,7 @@ def main(course, glob="*.pack.v2*.md"):
                 print(f"  [{q['marker']}] {q['raw'][:140]}")
                 continue
             qt, cite = norm(q["text"]), q["cite"]
-            tag = " (cleaned)" if q["cleaned"] else ""
+            tag = (f" ({q['speaker']})" if q.get("speaker") else "") + (" (cleaned)" if q["cleaned"] else "")
             if not cite:
                 print(f"  [NO-CITE]{tag} \"{q['text'][:90]}\"")
                 continue
