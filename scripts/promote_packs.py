@@ -91,6 +91,8 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true", help="actually write files")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--glob", default="*.pack.v2*.md")
+    ap.add_argument("--staging", type=Path, default=STAGING, help="staging root directory")
+    ap.add_argument("--library", type=Path, default=LIBRARY, help="library destination directory")
     ap.add_argument(
         "--only",
         metavar="FILE",
@@ -101,17 +103,22 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    staging = args.staging
+    library = args.library
+
     if not args.apply and not args.dry_run:
         ap.error("choose --dry-run or --apply")
 
-    if not STAGING.is_dir():
-        print(f"!! staging not found: {STAGING.resolve()}", file=sys.stderr)
+    if not staging.is_dir():
+        print(f"!! staging not found: {staging.resolve()}", file=sys.stderr)
         return 2
-    if not LIBRARY.is_dir():
-        print(f"!! library not found: {LIBRARY.resolve()}", file=sys.stderr)
+    if not library.is_dir():
+        print(f"!! library not found: {library.resolve()}", file=sys.stderr)
         return 2
 
-    packs = sorted(STAGING.glob(f"*/{args.glob}"))
+    packs = sorted(staging.glob(f"*/{args.glob}"))
+    if not packs:
+        packs = sorted(staging.glob(f"**/{args.glob}"))
 
     if args.only:
         wanted = {
@@ -138,7 +145,7 @@ def main() -> int:
     # promotion cannot happen.
     plan, collisions = [], []
     for pack in packs:
-        dest = LIBRARY / library_name(pack)
+        dest = library / library_name(pack)
         if dest.exists():
             collisions.append(dest)
         plan.append((pack, dest))
